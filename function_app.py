@@ -228,8 +228,8 @@ def _build_reservering_email(payload: dict, sp_output: dict, run_value) -> tuple
         ("Klant_id", sp_output.get("klant_id")),
         ("Campagne_id", sp_output.get("campagne_id")),
         ("Campagne naam", sp_output.get("campagne_naam")),
-        ("Naam", payload.get("naam")),
-        ("Email", payload.get("email")),
+        ("Klant naam", payload.get("naam")),
+        ("Klant e-mailadres", payload.get("email")),
     ]
 
     getoonde_output_keys = {"reservering_id", "klant_id", "campagne_id", "campagne_naam"}
@@ -264,11 +264,26 @@ def _build_reservering_email(payload: dict, sp_output: dict, run_value) -> tuple
         )
     )
 
+    agenda_tool_link = ""
+    if reservering_id not in (None, ""):
+        link_url = (
+            "https://agendatooling-f7ffdgaheqgbhnb0.westeurope-01.azurewebsites.net"
+            f"?reservering={html.escape(str(reservering_id), quote=True)}"
+        )
+        agenda_tool_link = (
+            '<p style="margin-top:16px;">'
+            f'<a href="{link_url}" style="background-color:#1a3c6e;color:#ffffff;'
+            'padding:8px 16px;border-radius:4px;text-decoration:none;display:inline-block;">'
+            "Bekijk reservering in Agenda Tool</a>"
+            "</p>"
+        )
+
     html_body = (
         '<div style="font-family:Segoe UI, Arial, sans-serif;color:#222;max-width:600px;">'
         '<h2 style="color:#1a3c6e;">Nieuwe reservering</h2>'
         f"{test_banner}"
         f'<table style="border-collapse:collapse;width:100%;">{rijen}</table>'
+        f"{agenda_tool_link}"
         '<p style="color:#888;font-size:12px;margin-top:16px;">'
         "Automatisch gegenereerd door AfspraakMaken bij het aanmaken van een reservering."
         "</p>"
