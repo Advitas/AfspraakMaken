@@ -239,6 +239,74 @@ def _get_graph_access_token() -> str:
     return response.json()["access_token"]
 
 
+def _build_reservering_email(payload: dict, sp_output: dict, run_value) -> tuple[str, str]:
+    is_prod = str(run_value).strip().lower() == "prod"
+
+    reservering_id = sp_output.get("reservering_id")
+    reservering_label = str(reservering_id) if reservering_id not in (None, "") else "onbekend"
+
+    subject_prefix = "" if is_prod else "[TEST] "
+    subject = f"{subject_prefix}Nieuwe reservering #{reservering_label} — actie vereist"
+
+    bekende_velden = [
+        ("Reserveringsnummer", sp_output.get("reservering_id")),
+        ("Datum", payload.get("datum")),
+        ("Tijd", payload.get("tijd")),
+        ("Adviseur_id", payload.get("adviseur_id")),
+        ("Duur (kwartieren)", payload.get("duur_kwartieren")),
+        ("Klant_id", sp_output.get("klant_id")),
+        ("Campagne_id", sp_output.get("campagne_id")),
+        ("Campagne naam", sp_output.get("campagne_naam")),
+        ("Naam", payload.get("naam")),
+        ("Email", payload.get("email")),
+    ]
+
+    getoonde_output_keys = {"reservering_id", "klant_id", "campagne_id", "campagne_naam"}
+    genegeerde_output_keys = getoonde_output_keys | {
+        "foutmelding", "foutcode", "fout_stap", "fout_parameter", "fout_waarde", "fout_detailleer",
+    }
+    overige_velden = [
+        (key, value) for key, value in sp_output.items() if key not in genegeerde_output_keys
+    ]
+
+    def _rij(label, waarde) -> str:
+        weergave = html.escape(str(waarde)) if waarde not in (None, "") else "&mdash;"
+        return (
+            "<tr>"
+            f'<td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;font-weight:bold;'
+            f'white-space:nowrap;">{html.escape(str(label))}</td>'
+            f'<td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;">{weergave}</td>'
+            "</tr>"
+        )
+
+    rijen = "".join(_rij(label, waarde) for label, waarde in bekende_velden)
+    if overige_velden:
+        overige_tekst = ", ".join(f"{key}={value}" for key, value in overige_velden)
+        rijen += _rij("Overige gegevens", overige_tekst)
+
+    test_banner = (
+        ""
+        if is_prod
+        else (
+            '<p style="color:#b00020;font-weight:bold;">Dit is een TESTreservering '
+            "(niet tegen productie) — geen actie ondernemen.</p>"
+        )
+    )
+
+    html_body = (
+        '<div style="font-family:Segoe UI, Arial, sans-serif;color:#222;max-width:600px;">'
+        '<h2 style="color:#1a3c6e;">Nieuwe reservering</h2>'
+        f"{test_banner}"
+        f'<table style="border-collapse:collapse;width:100%;">{rijen}</table>'
+        '<p style="color:#888;font-size:12px;margin-top:16px;">'
+        "Automatisch gegenereerd door AfspraakMaken bij het aanmaken van een reservering."
+        "</p>"
+        "</div>"
+    )
+
+    return subject, html_body
+
+
 def _call_sp_maak_afspraak(cursor, data: dict) -> dict:
     adviseur_csv = ",".join(str(item) for item in data["adviseur_ids"])
     cursor.execute(
