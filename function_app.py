@@ -792,6 +792,21 @@ def _handle_availability(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400,
             mimetype="application/json",
         )
+    except pyodbc.Error as ex:
+        logging.exception("Databasefout bij aanroepen van beschikbaarheids-SP")
+        if conn:
+            conn.rollback()
+        return func.HttpResponse(
+            json.dumps(
+                {
+                    "error": "Databasefout bij uitvoeren van stored procedure.",
+                    "details": _extract_db_error_details(ex),
+                },
+                default=str,
+            ),
+            status_code=500,
+            mimetype="application/json",
+        )
     except Exception:
         logging.exception("Fout bij aanroepen van psAgendaPicker_GetAvailability")
         if conn:

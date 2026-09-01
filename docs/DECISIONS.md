@@ -37,3 +37,11 @@ Append-only. Nieuwe beslissingen worden onderaan toegevoegd, niet bewerkt.
 **Beslissing/Bevinding:** root cause was inderdaad ontbrekende rechten voor `svc-AppMaakAfspraak` op de productiedatabase — op `dbo.psAgendaPicker_GetAvailabilityBuitendienst` zelf en/of op de onderliggende tabellen (`PowerBI.AdviseurRegio`, `PowerBI.AgendaBuitenDienst`, `dbo.Adviseurs`) die de SP intern leest. Na het zetten van `GRANT EXECUTE`/`GRANT SELECT` op deze objecten werkt de buitendienst-flow end-to-end correct in AgendaPicker.
 
 **Gevolgen:** het `docs/TODO.md`-item over deze blocker is afgevinkt. Openstaand vervolgpunt (niet in deze sessie opgepakt): `_handle_availability` mist nog een specifieke `pyodbc.Error`-tak met `_extract_db_error_details` (zoals `/reservering` die wel heeft) — zonder die tak zijn toekomstige databasefouten op `/availability` alleen zichtbaar via Application Insights, niet in de HTTP-response zelf.
+
+## 2026-09-01 — pyodbc.Error-tak toegevoegd aan /availability
+
+**Context:** het vervolgpunt hierboven — tijdens het debuggen van de buitendienst-500 was de echte SQL-foutmelding niet zichtbaar in de HTTP-response, omdat `_handle_availability` elke databasefout liet vallen in de generieke `except Exception`-tak (alleen `"Interne fout bij uitvoeren van stored procedure."`, geen details). `/reservering` heeft dit probleem niet: die heeft een aparte `except pyodbc.Error`-tak die `_extract_db_error_details(ex)` teruggeeft.
+
+**Beslissing:** `_handle_availability` heeft nu dezelfde `except pyodbc.Error as ex`-tak vóór de generieke `except Exception`, met `conn.rollback()`, `logging.exception(...)`, en `_extract_db_error_details(ex)` in de response — identiek patroon aan `/reservering`. De generieke `except Exception`-tak blijft ongewijzigd voor niet-database-fouten.
+
+**Gevolgen:** een toekomstige databasefout (bijv. een rechten-fout zoals in de vorige entry) is nu direct zichtbaar in de HTTP-response van `/availability`, zonder dat Application Insights geraadpleegd hoeft te worden.
