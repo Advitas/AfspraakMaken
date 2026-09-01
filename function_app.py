@@ -307,6 +307,38 @@ def _build_reservering_email(payload: dict, sp_output: dict, run_value) -> tuple
     return subject, html_body
 
 
+def _send_reservering_email(payload: dict, sp_output: dict, run_value) -> None:
+    sender = "planning@advitas.nl"
+    subject, html_body = _build_reservering_email(payload, sp_output, run_value)
+    access_token = _get_graph_access_token()
+
+    response = requests.post(
+        f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "message": {
+                "subject": subject,
+                "body": {"contentType": "HTML", "content": html_body},
+                "toRecipients": [{"emailAddress": {"address": sender}}],
+            },
+            "saveToSentItems": "false",
+        },
+        timeout=15,
+    )
+    if response.status_code >= 300:
+        raise RuntimeError(f"Graph sendMail-fout ({response.status_code}): {response.text[:500]}")
+
+
+def _try_send_reservering_email(payload: dict, sp_output: dict, run_value) -> None:
+    try:
+        _send_reservering_email(payload, sp_output, run_value)
+    except Exception:
+        logging.exception("Fout bij versturen van reserverings-mail naar planning@advitas.nl")
+
+
 def _call_sp_maak_afspraak(cursor, data: dict) -> dict:
     adviseur_csv = ",".join(str(item) for item in data["adviseur_ids"])
     cursor.execute(
@@ -776,6 +808,8 @@ def reservering(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         conn.commit()
+
+        _try_send_reservering_email(prepared_payload, sp_output, prepared_payload.get("run"))
 
         return func.HttpResponse(
             json.dumps(
