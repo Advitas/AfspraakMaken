@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import os
@@ -6,6 +7,7 @@ from datetime import date, time
 
 import azure.functions as func
 import pyodbc
+import requests
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
@@ -198,6 +200,43 @@ def _read_all_result_sets(cursor) -> list[list[dict]]:
             break
 
     return result_sets
+
+
+def _require_any_env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    raise RuntimeError("Ontbrekende Graph-credential. Zet een van: " + ", ".join(names))
+
+
+def _get_graph_access_token() -> str:
+    tenant_id = _require_any_env("SHAREPOINT_TENANT_ID", "AZURE_TENANT_ID")
+    client_id = _require_any_env("SHAREPOINT_CLIENT_ID", "AZURE_CLIENT_ID")
+    client_secret = _require_any_env("SHAREPOINT_CLIENT_SECRET", "AZURE_CLIENT_SECRET")
+
+    token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    response = requests.post(
+        token_url,
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": "https://graph.microsoft.com/.default",
+        },
+        timeout=15,
+    )
+    if response.status_code != 200:
+        try:
+            error_body = response.json()
+            err = error_body.get("error")
+            err_desc = str(error_body.get("error_description", ""))[:500]
+        except ValueError:
+            err = response.status_code
+            err_desc = response.text[:500]
+        raise RuntimeError(f"Microsoft Graph token-fout ({response.status_code}): {err} - {err_desc}")
+
+    return response.json()["access_token"]
 
 
 def _call_sp_maak_afspraak(cursor, data: dict) -> dict:
