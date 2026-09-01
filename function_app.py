@@ -727,11 +727,30 @@ def reservering(req: func.HttpRequest) -> func.HttpResponse:
             conn.close()
 
 
+def _prepare_availability_call(payload: dict) -> tuple[str, dict]:
+    vorm_afspraak = str(payload.get("vorm_afspraak") or "online").strip().lower()
+
+    if vorm_afspraak not in {"online", "buitendienst"}:
+        raise ValidationError("Parameter 'vorm_afspraak' moet 'online' of 'buitendienst' zijn.")
+
+    if vorm_afspraak == "buitendienst":
+        postcode = str(payload.get("postcode") or "").strip()
+        if not re.fullmatch(r"\d{4}", postcode):
+            raise ValidationError("Parameter 'postcode' moet uit exact 4 cijfers bestaan.")
+
+        sp_payload = dict(payload)
+        sp_payload.setdefault("postcode4", postcode)
+        return "psAgendaPicker_GetAvailabilityBuitendienst", sp_payload
+
+    return "psAgendaPicker_GetAvailability", payload
+
+
 def _handle_availability(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Availability API aangeroepen")
 
     try:
         payload = _extract_request_payload(req)
+        procedure_name, sp_payload = _prepare_availability_call(payload)
     except ValidationError as ex:
         return func.HttpResponse(
             json.dumps({"error": str(ex)}),
@@ -744,7 +763,7 @@ def _handle_availability(req: func.HttpRequest) -> func.HttpResponse:
     try:
         conn = _get_connection(payload.get("run"))
         cursor = conn.cursor()
-        sp_result = _call_sp_dynamic(cursor, "dbo", "psAgendaPicker_GetAvailability", payload)
+        sp_result = _call_sp_dynamic(cursor, "dbo", procedure_name, sp_payload)
         conn.commit()
 
         return func.HttpResponse(
