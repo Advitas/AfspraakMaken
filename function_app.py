@@ -207,36 +207,7 @@ def _require_any_env(*names: str) -> str:
         value = os.getenv(name)
         if value:
             return value
-    raise RuntimeError("Ontbrekende Graph-credential. Zet een van: " + ", ".join(names))
-
-
-def _get_graph_access_token() -> str:
-    tenant_id = _require_any_env("SHAREPOINT_TENANT_ID", "AZURE_TENANT_ID")
-    client_id = _require_any_env("SHAREPOINT_CLIENT_ID", "AZURE_CLIENT_ID")
-    client_secret = _require_any_env("SHAREPOINT_CLIENT_SECRET", "AZURE_CLIENT_SECRET")
-
-    token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
-    response = requests.post(
-        token_url,
-        data={
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "scope": "https://graph.microsoft.com/.default",
-        },
-        timeout=15,
-    )
-    if response.status_code != 200:
-        try:
-            error_body = response.json()
-            err = error_body.get("error")
-            err_desc = str(error_body.get("error_description", ""))[:500]
-        except ValueError:
-            err = response.status_code
-            err_desc = response.text[:500]
-        raise RuntimeError(f"Microsoft Graph token-fout ({response.status_code}): {err} - {err_desc}")
-
-    return response.json()["access_token"]
+    raise RuntimeError("Ontbrekende credential. Zet een van: " + ", ".join(names))
 
 
 def _build_reservering_email(payload: dict, sp_output: dict, run_value) -> tuple[str, str]:
@@ -310,26 +281,37 @@ def _build_reservering_email(payload: dict, sp_output: dict, run_value) -> tuple
 def _send_reservering_email(payload: dict, sp_output: dict, run_value) -> None:
     sender = "planning@advitas.nl"
     subject, html_body = _build_reservering_email(payload, sp_output, run_value)
-    access_token = _get_graph_access_token()
+    api_key = _require_any_env("MANDRILL_API_KEY")
 
     response = requests.post(
-        f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        },
+        "https://mandrillapp.com/api/1.0/messages/send.json",
         json={
+            "key": api_key,
             "message": {
+                "html": html_body,
                 "subject": subject,
-                "body": {"contentType": "HTML", "content": html_body},
-                "toRecipients": [{"emailAddress": {"address": sender}}],
+                "from_email": sender,
+                "from_name": "Advitas",
+                "to": [{"email": sender, "type": "to"}],
             },
-            "saveToSentItems": "false",
         },
         timeout=15,
     )
     if response.status_code >= 300:
-        raise RuntimeError(f"Graph sendMail-fout ({response.status_code}): {response.text[:500]}")
+        raise RuntimeError(f"Mandrill sendMail-fout ({response.status_code}): {response.text[:500]}")
+
+    try:
+        result = response.json()
+    except ValueError:
+        result = None
+
+    if isinstance(result, dict) and result.get("status") == "error":
+        raise RuntimeError(f"Mandrill wees de aanvraag af: {result}")
+
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        eerste_status = result[0].get("status")
+        if eerste_status in {"rejected", "invalid"}:
+            raise RuntimeError(f"Mandrill wees de mail af: {result[0]}")
 
 
 def _try_send_reservering_email(payload: dict, sp_output: dict, run_value) -> None:
