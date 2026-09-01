@@ -1,0 +1,5 @@
+# AI — lokale bestanden niet committen, commands en skills wel
+.claude/settings.local.json
+.claude/.template-source
+.claude/.DS_Store
+.claude/worktrees/
