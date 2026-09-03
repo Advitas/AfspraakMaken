@@ -1124,7 +1124,16 @@ def _valideer_pincode(afspraak_id, ingevoerde_pincode) -> dict:
     return record
 
 
-def _build_wijzig_email(afspraak_id, pincode: str, run_value) -> tuple[str, str]:
+# TIJDELIJK (aangevraagd 2026-09-03, zie docs/DECISIONS.md): pincode-mails gaan tijdens het testen
+# van deze feature altijd naar dit adres, ongeacht het opgegeven klant-e-mailadres. Verwijderen
+# (of leeg laten via env var WIJZIG_MAIL_OVERRIDE_TO) zodra er weer naar echte klant-e-mailadressen
+# gemaild moet worden — zie docs/TODO.md.
+WIJZIG_MAIL_OVERRIDE_TO_DEFAULT = "rvader@advitas.nl"
+
+
+def _build_wijzig_email(
+    afspraak_id, pincode: str, run_value, oorspronkelijk_email: str | None = None
+) -> tuple[str, str]:
     is_prod = str(run_value).strip().lower() == "prod"
     subject_prefix = "" if is_prod else "[TEST] "
     subject = f"{subject_prefix}Pincode om uw afspraak te wijzigen"
@@ -1143,10 +1152,21 @@ def _build_wijzig_email(afspraak_id, pincode: str, run_value) -> tuple[str, str]
         )
     )
 
+    override_notice = (
+        (
+            '<p style="background:#fff3cd;color:#664d03;padding:8px 12px;border-radius:4px;'
+            'font-size:12px;">Tijdelijke testmail-omleiding: normaal zou dit bericht naar '
+            f"{html.escape(oorspronkelijk_email)} zijn verstuurd.</p>"
+        )
+        if oorspronkelijk_email
+        else ""
+    )
+
     html_body = (
         '<div style="font-family:Segoe UI, Arial, sans-serif;color:#222;max-width:600px;">'
         '<h2 style="color:#1a3c6e;">Afspraak wijzigen</h2>'
         f"{test_banner}"
+        f"{override_notice}"
         "<p>Gebruik onderstaande pincode om uw afspraak te wijzigen. De pincode is "
         f"<strong>5 minuten</strong> geldig.</p>"
         f'<p style="font-size:28px;font-weight:bold;letter-spacing:4px;">{html.escape(pincode)}</p>'
@@ -1166,7 +1186,11 @@ def _build_wijzig_email(afspraak_id, pincode: str, run_value) -> tuple[str, str]
 
 
 def _send_wijzig_email(afspraak_id, email: str, pincode: str, run_value) -> None:
-    subject, html_body = _build_wijzig_email(afspraak_id, pincode, run_value)
+    override_to = os.getenv("WIJZIG_MAIL_OVERRIDE_TO", WIJZIG_MAIL_OVERRIDE_TO_DEFAULT).strip()
+    verzend_naar = override_to or email
+    oorspronkelijk_email = email if (override_to and override_to.lower() != email.lower()) else None
+
+    subject, html_body = _build_wijzig_email(afspraak_id, pincode, run_value, oorspronkelijk_email)
     api_key = _require_any_env("MANDRILL_API_KEY")
 
     response = requests.post(
@@ -1178,7 +1202,7 @@ def _send_wijzig_email(afspraak_id, email: str, pincode: str, run_value) -> None
                 "subject": subject,
                 "from_email": "planning@advitas.nl",
                 "from_name": "Advitas",
-                "to": [{"email": email, "type": "to"}],
+                "to": [{"email": verzend_naar, "type": "to"}],
             },
         },
         timeout=15,

@@ -142,3 +142,23 @@ FROM dbo.users`, zonder `ORDER BY`). Kolommen die niet in de aangeleverde parame
 zonder `ORDER BY` op `dbo.users` is voor deze SP acceptabel — als er een vaste systeemgebruiker moet zijn,
 moet dat vóór uitvoering aangepast worden. De NULL-gezette kolommen moeten door de business
 gecontroleerd worden op of ze daadwerkelijk leeg mogen blijven voor dit scenario.
+
+## 2026-09-03 — Pincode-mail tijdelijk omgeleid naar rvader@advitas.nl
+
+**Context:** tijdens het testen van deze feature wilde de gebruiker de pincode-mail niet naar echte
+klant-e-mailadressen laten gaan, maar naar zijn eigen adres, zonder daarvoor eerst een lokale
+`local.settings.json` te hoeven opzetten (die ontbreekt in deze checkout, zie eerdere ADR's).
+
+**Beslissing:** `_send_wijzig_email` leest env var `WIJZIG_MAIL_OVERRIDE_TO`; als die leeg is, valt de
+code terug op de hardcoded constante `WIJZIG_MAIL_OVERRIDE_TO_DEFAULT = "rvader@advitas.nl"` in plaats van
+het opgegeven klant-e-mailadres. De mail zelf krijgt in dat geval een extra gele notitie
+("Tijdelijke testmail-omleiding: normaal zou dit bericht naar `<echte adres>` zijn verstuurd.") zodat
+tijdens het testen nog te zien is voor welke klant de mail eigenlijk bedoeld was. Dit is bewust als
+code-default geïmplementeerd (niet alleen als optionele env var) zodat het meteen werkt zonder
+`local.settings.json`-wijziging.
+
+**Gevolgen:** zolang deze default in de code staat, komt GEEN pincode-mail ooit bij een echte klant aan —
+ook niet in productie als `WIJZIG_MAIL_OVERRIDE_TO` daar niet expliciet leeg gezet wordt. Dit moet
+verwijderd worden vóór een release naar echte klanten (zie `docs/TODO.md`). Om het te deactiveren: zet
+`WIJZIG_MAIL_OVERRIDE_TO` op een lege string in de App Settings, of verwijder de default-constante uit de
+code.
