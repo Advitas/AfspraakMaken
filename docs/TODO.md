@@ -9,12 +9,15 @@
 - [ ] Reserverings-mail naar planning@advitas.nl (zie `docs/DECISIONS.md`, 2026-09-01, vervangen door Mandrill) vereist dat env-var `MANDRILL_API_KEY` in de Function App's App Settings staat. Nog niet geverifieerd — controleer via een test-reservering en check of de mail daadwerkelijk aankomt (bij een ontbrekende/ongeldige key faalt dit stil; zie Application Insights voor de echte foutmelding).
 - [ ] `spWijzigAfspraakDatumTijd` moet uitgevoerd worden op `SQL_DATABASE_TEST`/productie — het voorstel
   staat in `sql/spWijzigAfspraakDatumTijd.sql`, gebaseerd op het schema van `[dbo].[Afspraak]` zoals
-  zichtbaar in `[PowerBI].[usp_Reservering_OmzettenNaarAfspraak]` (aangeleverd 2026-09-03). **Nog te
-  verifiëren vóór uitvoering:** (1) de PK-kolomnaam van `[dbo].[Afspraak]` is aangenomen als
-  `[afspraak_id]` (nooit bevestigd — het aangeleverde script doet alleen een INSERT, geen WHERE-lookup op
-  de PK); (2) `[vorm_afspraak]` = `'Buitendienst'` is een aanname naar analogie met het bevestigde
-  `'Online'`. Tot uitvoering + verificatie geeft `/wijzig-opslaan` een databasefout ("procedure niet
-  gevonden").
+  zichtbaar in `[PowerBI].[usp_Reservering_OmzettenNaarAfspraak]`, plus een `[dbo].[actions]`-insert voor
+  het "Afspraakwijziging"-scenario (beide aangeleverd 2026-09-03). **Nog te verifiëren vóór uitvoering**
+  (zie ook de opsomming bovenaan `sql/spWijzigAfspraakDatumTijd.sql`): (1) de PK-kolomnaam van
+  `[dbo].[Afspraak]` is aangenomen als `[afspraak_id]`; (2) `[vorm_afspraak]` = `'Buitendienst'` is een
+  aanname naar analogie met het bevestigde `'Online'`; (3) `dbo.users` heeft een PK-kolom `[id]` (voor de
+  `creator_id`-fallback); (4) een aantal `[actions]`-kolommen (direction, product_id, tag, communication,
+  Oorsprong, Oorsprong_categorie, insteek_id, en field_contents_4 t/m 12) staan op `NULL` omdat daar geen
+  waarde voor is aangeleverd — check of dat businessmatig klopt. Tot uitvoering + verificatie geeft
+  `/wijzig-opslaan` een databasefout ("procedure niet gevonden").
 - [ ] Bevestigen dat `MANDRILL_API_KEY` en `AzureWebJobsStorage` correct in de Function App's App Settings
   staan voor de nieuwe wijzig-pincode-mail en pincode-opslag.
 - [ ] `/wijzig-aanvraag`, `/wijzig-verificatie`, `/wijzig-opslaan` zijn nog niet live getest tegen

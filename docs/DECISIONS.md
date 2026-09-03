@@ -116,3 +116,29 @@ bevestigde `'Online'`.
 Een DBA (of Rob/Daniel) moet het reviewen, de twee aannames verifiëren tegen het echte
 `[dbo].[Afspraak]`-schema, en het handmatig uitvoeren op `SQL_DATABASE_TEST` vóór `/wijzig-opslaan`
 end-to-end getest kan worden.
+
+## 2026-09-03 — spWijzigAfspraakDatumTijd logt de wijziging ook in [dbo].[actions]
+
+**Context:** de gebruiker gaf aan dat een afspraakwijziging, net als de bestaande
+`usp_Reservering_OmzettenNaarAfspraak`-flow, ook een rij in `[dbo].[actions]` moet wegschrijven, en
+leverde de exacte `INSERT`-kolomlijst plus een parametertabel met de waarden voor het
+"Afspraakwijziging"-scenario aan: `action_type_id` = `PLANNING_MOVE_ACTION_TYPE_ID`
+(`17AE20FB-8E45-4201-8FB8-952FB2C8CA4F`), `state_id` = `35` (hardcoded), `source` = `'Manual (Swap)'`,
+`role` = `'telemarketer'`, `field_contents_1/2/3` = afspraak-ID/nieuwe adviseur-ID/nieuwe datum+tijd,
+`auto_type` = `'manual'`, `creator_id` = "FK-veilig opgelost (ingelogde gebruiker, anders eerste rij
+dbo.users)".
+
+**Beslissing:** `sql/spWijzigAfspraakDatumTijd.sql` voegt, ná de succesvolle `UPDATE` op
+`[dbo].[Afspraak]` en binnen dezelfde transactie, deze `actions`-insert toe met exact de aangeleverde
+kolomlijst en waarden. Omdat deze SP wordt aangeroepen door de AfspraakMaken Azure Function
+(function-key-auth, geen ingelogde gebruiker) is er nooit een "ingelogde gebruiker"-context beschikbaar —
+`creator_id` gebruikt daarom altijd de fallback naar de eerste rij van `dbo.users` (`SELECT TOP 1 [id]
+FROM dbo.users`, zonder `ORDER BY`). Kolommen die niet in de aangeleverde parametertabel stonden
+(`direction`, `product_id`, `tag`, `communication`, `Oorsprong`, `Oorsprong_categorie`,
+`field_contents_4` t/m `field_contents_12` behalve 1-3, `insteek_id`) zijn op `NULL` gezet.
+
+**Gevolgen:** nog twee aannames toegevoegd aan de openstaande verificatielijst (zie
+`sql/spWijzigAfspraakDatumTijd.sql`, bovenaan): (1) `dbo.users` heeft een PK-kolom `[id]`; (2) `TOP 1`
+zonder `ORDER BY` op `dbo.users` is voor deze SP acceptabel — als er een vaste systeemgebruiker moet zijn,
+moet dat vóór uitvoering aangepast worden. De NULL-gezette kolommen moeten door de business
+gecontroleerd worden op of ze daadwerkelijk leeg mogen blijven voor dit scenario.
