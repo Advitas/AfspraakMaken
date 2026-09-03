@@ -1122,3 +1122,177 @@ def _valideer_pincode(afspraak_id, ingevoerde_pincode) -> dict:
         raise ValidationError(PINCODE_GENERIEKE_FOUTMELDING)
 
     return record
+
+
+def _build_wijzig_email(afspraak_id, pincode: str, run_value) -> tuple[str, str]:
+    is_prod = str(run_value).strip().lower() == "prod"
+    subject_prefix = "" if is_prod else "[TEST] "
+    subject = f"{subject_prefix}Pincode om uw afspraak te wijzigen"
+
+    agendapicker_base = os.getenv(
+        "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.azurewebsites.net"
+    ).rstrip("/")
+    link_url = f"{agendapicker_base}/wijzig-afspraak.html?afspraak_id={html.escape(str(afspraak_id), quote=True)}"
+
+    test_banner = (
+        ""
+        if is_prod
+        else (
+            '<p style="color:#b00020;font-weight:bold;">Dit is een TESTaanvraag '
+            "(niet tegen productie) — geen actie ondernemen.</p>"
+        )
+    )
+
+    html_body = (
+        '<div style="font-family:Segoe UI, Arial, sans-serif;color:#222;max-width:600px;">'
+        '<h2 style="color:#1a3c6e;">Afspraak wijzigen</h2>'
+        f"{test_banner}"
+        "<p>Gebruik onderstaande pincode om uw afspraak te wijzigen. De pincode is "
+        f"<strong>5 minuten</strong> geldig.</p>"
+        f'<p style="font-size:28px;font-weight:bold;letter-spacing:4px;">{html.escape(pincode)}</p>'
+        '<p style="margin-top:16px;">'
+        f'<a href="{link_url}" style="background-color:#1a3c6e;color:#ffffff;'
+        'padding:8px 16px;border-radius:4px;text-decoration:none;display:inline-block;">'
+        "Wijzig uw afspraak</a>"
+        "</p>"
+        '<p style="color:#888;font-size:12px;margin-top:16px;">'
+        "Automatisch gegenereerd door AfspraakMaken. Heeft u dit niet aangevraagd? Dan kunt u deze "
+        "e-mail negeren."
+        "</p>"
+        "</div>"
+    )
+
+    return subject, html_body
+
+
+def _send_wijzig_email(afspraak_id, email: str, pincode: str, run_value) -> None:
+    subject, html_body = _build_wijzig_email(afspraak_id, pincode, run_value)
+    api_key = _require_any_env("MANDRILL_API_KEY")
+
+    response = requests.post(
+        "https://mandrillapp.com/api/1.0/messages/send.json",
+        json={
+            "key": api_key,
+            "message": {
+                "html": html_body,
+                "subject": subject,
+                "from_email": "planning@advitas.nl",
+                "from_name": "Advitas",
+                "to": [{"email": email, "type": "to"}],
+            },
+        },
+        timeout=15,
+    )
+    if response.status_code >= 300:
+        raise RuntimeError(f"Mandrill sendMail-fout ({response.status_code}): {response.text[:500]}")
+
+    try:
+        result = response.json()
+    except ValueError:
+        result = None
+
+    if isinstance(result, dict) and result.get("status") == "error":
+        raise RuntimeError(f"Mandrill wees de aanvraag af: {result}")
+
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        eerste_status = result[0].get("status")
+        if eerste_status in {"rejected", "invalid"}:
+            raise RuntimeError(f"Mandrill wees de mail af: {result[0]}")
+
+
+def _try_send_wijzig_email(afspraak_id, email: str, pincode: str, run_value) -> None:
+    try:
+        _send_wijzig_email(afspraak_id, email, pincode, run_value)
+    except Exception:
+        logging.exception("Fout bij versturen van wijzig-pincode-mail naar %s", email)
+
+
+_EMAIL_PATROON = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$")
+
+
+def _parse_wijzig_aanvraag_payload(payload: dict) -> dict:
+    afspraak_id = _require(payload.get("afspraak_id"), "afspraak_id")
+    email = str(_require(payload.get("email"), "email")).strip()
+    if not _EMAIL_PATROON.match(email):
+        raise ValidationError("'email' moet een geldig e-mailadres zijn.")
+
+    adviseur_id = _require(payload.get("adviseur_id"), "adviseur_id")
+    duur_kwartieren = int(_require(payload.get("duur_kwartieren"), "duur_kwartieren"))
+    if duur_kwartieren < 1:
+        raise ValidationError("'duur_kwartieren' moet minimaal 1 zijn.")
+
+    vorm_afspraak = str(_require(payload.get("vorm_afspraak"), "vorm_afspraak")).strip().lower()
+    if vorm_afspraak not in {"online", "buitendienst"}:
+        raise ValidationError("'vorm_afspraak' moet 'online' of 'buitendienst' zijn.")
+
+    postcode = payload.get("postcode")
+    if vorm_afspraak == "buitendienst" and not re.fullmatch(r"\d{4}", str(postcode or "")):
+        raise ValidationError(
+            "'postcode' is verplicht en moet uit exact 4 cijfers bestaan bij vorm_afspraak 'buitendienst'."
+        )
+
+    return {
+        "afspraak_id": afspraak_id,
+        "email": email,
+        "adviseur_id": adviseur_id,
+        "duur_kwartieren": duur_kwartieren,
+        "vorm_afspraak": vorm_afspraak,
+        "postcode": postcode,
+        "run": payload.get("run"),
+    }
+
+
+@app.route(route="wijzig-aanvraag", methods=["POST"])
+def wijzig_aanvraag(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("Wijzig-aanvraag API aangeroepen")
+
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return func.HttpResponse(
+            json.dumps({"error": "Body moet geldige JSON zijn."}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    try:
+        data = _parse_wijzig_aanvraag_payload(payload)
+    except (ValidationError, ValueError) as ex:
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    try:
+        pincode = _genereer_pincode()
+        _bewaar_pincode_record(
+            data["afspraak_id"],
+            pincode,
+            data["adviseur_id"],
+            data["duur_kwartieren"],
+            data["vorm_afspraak"],
+            data["postcode"],
+            data["run"],
+        )
+    except RuntimeError as ex:
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=500,
+            mimetype="application/json",
+        )
+    except Exception:
+        logging.exception("Fout bij opslaan van pincode-record")
+        return func.HttpResponse(
+            json.dumps({"error": "Interne fout bij opslaan van de pincode."}),
+            status_code=500,
+            mimetype="application/json",
+        )
+
+    _try_send_wijzig_email(data["afspraak_id"], data["email"], pincode, data["run"])
+
+    return func.HttpResponse(
+        json.dumps({"result": "success"}),
+        status_code=200,
+        mimetype="application/json",
+    )
