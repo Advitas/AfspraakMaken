@@ -69,3 +69,25 @@ Append-only. Nieuwe beslissingen worden onderaan toegevoegd, niet bewerkt.
 **Beslissing:** de gebruiker koos ervoor de adviseursnaam te laten vervallen — `/reservering` blijft dus uitsluitend via `spMaakReservering` communiceren, geen nieuwe losse SELECT. De labels "Naam"/"Email" in `_build_reservering_email` zijn hernoemd naar "Klant naam"/"Klant e-mailadres" ter verduidelijking. Een knop-achtige link naar Agenda Tool is toegevoegd, maar alleen wanneer `reservering_id` bekend is (anders zou de link naar `?reservering=onbekend` wijzen, wat niets nuttigs oplevert).
 
 **Gevolgen:** adviseur-informatie in de mail blijft beperkt tot het numerieke `adviseur_id` (zoals het al was). Mocht de adviseursnaam later alsnog gewenst zijn, dan is een nieuwe SELECT op `dbo.Adviseurs` (met ondersteuning voor meerdere adviseur_id's, aangezien dat veld een CSV kan zijn) de aangewezen aanpak — opnieuw voorleggen vóór implementatie.
+
+## 2026-09-03 — Afspraak wijzigen via e-mail-pincode, pincode-opslag in Azure Table Storage
+
+**Context:** een klant moest zonder in te loggen de datum/tijd/adviseur/vorm van een bestaande afspraak
+kunnen wijzigen. Een letterlijk "tijdelijk bestand" op de Function App (zoals oorspronkelijk gevraagd) is
+niet betrouwbaar op een Azure Functions Consumption-plan (meerdere instanties, geen gegarandeerd gedeelde
+lokale schijf tussen aanroepen).
+
+**Beslissing:** de pincode (+ afspraak_id, adviseur_id, duur_kwartieren, vorm_afspraak, postcode, run)
+wordt 5 minuten bewaard in Azure Table Storage, via de bestaande `AzureWebJobsStorage`-connectie (geen
+nieuwe externe dienst, wel de nieuwe dependency `azure-data-tables`). Drie nieuwe endpoints
+(`/wijzig-aanvraag`, `/wijzig-verificatie`, `/wijzig-opslaan`) volgen dezelfde vaste-parameter-mapping-stijl
+als `/afspraak`. De daadwerkelijke opslag loopt via een nieuwe stored procedure
+`spWijzigAfspraakDatumTijd` die nog gebouwd moet worden buiten deze repo (zie `docs/TODO.md`).
+
+**Gevolgen:** `/wijzig-opslaan` faalt met een databasefout totdat de stored procedure bestaat in
+`SQL_DATABASE_TEST`/productie. Pincodes zijn one-time-use (verwijderd na succesvolle opslag), 5 minuten
+geldig, max. 5 foute pogingen; foutmeldingen bij verificatie lekken bewust geen detail over de exacte
+reden van afwijzing. De drie nieuwe endpoints zijn alleen syntactisch/statisch geverifieerd in deze sessie
+— `local.settings.json` ontbrak in de checkout (mag ook niet door Claude aangemaakt worden, zie
+Kritieke Regels in `CLAUDE.md`), dus live curl-verificatie tegen `SQL_DATABASE_TEST` en een echte Storage
+Account staat nog open (zie `docs/TODO.md`).
