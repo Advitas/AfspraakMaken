@@ -145,4 +145,4 @@ Nieuwe environment variable:
 - AzureWebJobsStorage (verplicht — standaard Azure Functions storage-connectie, gebruikt voor de
   tijdelijke pincode-opslag)
 - AGENDAPICKER_BASE_URL (optioneel, default
-  https://agendapicker-ahe5g9g6gdh0gcdw.azurewebsites.net — basis-URL voor de link in de pincode-mail)
+  https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net — basis-URL voor de link in de pincode-mail)

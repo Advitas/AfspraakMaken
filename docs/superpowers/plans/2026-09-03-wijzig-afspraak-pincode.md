@@ -231,7 +231,7 @@ def _build_wijzig_email(afspraak_id, pincode: str, run_value) -> tuple[str, str]
     subject = f"{subject_prefix}Pincode om uw afspraak te wijzigen"
 
     agendapicker_base = os.getenv(
-        "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.azurewebsites.net"
+        "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net"
     ).rstrip("/")
     link_url = f"{agendapicker_base}/wijzig-afspraak.html?afspraak_id={html.escape(str(afspraak_id), quote=True)}"
 
@@ -786,7 +786,7 @@ Nieuwe environment variable:
 - AzureWebJobsStorage (verplicht — standaard Azure Functions storage-connectie, gebruikt voor de
   tijdelijke pincode-opslag)
 - AGENDAPICKER_BASE_URL (optioneel, default
-  https://agendapicker-ahe5g9g6gdh0gcdw.azurewebsites.net — basis-URL voor de link in de pincode-mail)
+  https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net — basis-URL voor de link in de pincode-mail)
 ```
 
 - [ ] **Step 2: `local.settings.json.example` uitbreiden**
@@ -795,7 +795,7 @@ Voeg `"AGENDAPICKER_BASE_URL"` toe aan de `Values`, direct na `"MANDRILL_API_KEY
 
 ```json
     "MANDRILL_API_KEY": "<mandrill-api-key>",
-    "AGENDAPICKER_BASE_URL": "https://agendapicker-ahe5g9g6gdh0gcdw.azurewebsites.net",
+    "AGENDAPICKER_BASE_URL": "https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net",
 ```
 
 (`AzureWebJobsStorage` staat al in het bestand als `"UseDevelopmentStorage=true"` — die regel hoeft niet

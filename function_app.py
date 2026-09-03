@@ -1139,7 +1139,7 @@ def _build_wijzig_email(
     subject = f"{subject_prefix}Pincode om uw afspraak te wijzigen"
 
     agendapicker_base = os.getenv(
-        "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.azurewebsites.net"
+        "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net"
     ).rstrip("/")
     link_url = f"{agendapicker_base}/wijzig-afspraak.html?afspraak_id={html.escape(str(afspraak_id), quote=True)}"
 

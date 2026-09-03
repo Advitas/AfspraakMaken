@@ -13,7 +13,7 @@
     "SQL_TRUST_SERVER_CERTIFICATE": "no",
     "SQL_CONNECTION_TIMEOUT": "30",
     "MANDRILL_API_KEY": "<mandrill-api-key>",
-    "AGENDAPICKER_BASE_URL": "https://agendapicker-ahe5g9g6gdh0gcdw.azurewebsites.net",
+    "AGENDAPICKER_BASE_URL": "https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net",
     "SALEOP_STATE_ID": "nieuw",
     "SALEOP_CAMPAIGN_TYPE": "afspraak",
     "SALEOP_VIP": "0",

@@ -42,7 +42,7 @@ nieuw terrein voor allebei.
      geen ingebouwde Table-TTL), attempts=0, plus alle bovenstaande velden
    - verstuurt e-mail (Mandrill, zelfde patroon als _send_reservering_email) naar `email` met
      de pincode en een link:
-     https://agendapicker-ahe5g9g6gdh0gcdw.azurewebsites.net/wijzig-afspraak.html?afspraak_id=<id>
+     https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net/wijzig-afspraak.html?afspraak_id=<id>
 
 2. Klant opent wijzig-afspraak.html?afspraak_id=<id>, vult pincode in
    → POST AgendaPicker /api/wijziging/verifieer-pincode (thin proxy, function-key server-side)
