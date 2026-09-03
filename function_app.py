@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 from datetime import date, datetime, time, timedelta, timezone
+from urllib.parse import urlencode
 
 import azure.functions as func
 import pyodbc
@@ -113,6 +114,7 @@ def _parse_payload(payload: dict) -> dict:
         "prodcat_id": _optional_int(payload.get("prodcat_id"), "prodcat_id"),
         "advcat_id": _optional_int(payload.get("advcat_id"), "advcat_id"),
         "vorm_afspraak": payload.get("vorm_afspraak", "online"),
+        "postcode": payload.get("postcode"),
         "is_nieuwe_afspraak": _parse_bool(payload.get("is_nieuwe_afspraak"), "is_nieuwe_afspraak", derived_is_nieuwe),
         "create_opportunity_if_missing": _parse_bool(
             payload.get("create_opportunity_if_missing"), "create_opportunity_if_missing", False
@@ -417,6 +419,135 @@ def _call_sp_maak_afspraak(cursor, data: dict) -> dict:
         "result_sets": result_sets,
         "adviseur_id_doorgestuurd": adviseur_csv,
     }
+
+
+def _afspraak_bevestiging_mail_ingeschakeld() -> bool:
+    # UIT (safe default) totdat expliciet ingeschakeld — /afspraak is een bestaand, al in productie
+    # actief endpoint; dit voorkomt dat er ongemerkt bevestigingsmails naar echte klanten gaan zodra
+    # deze wijziging gedeployed wordt. Zet AFSPRAAK_BEVESTIGING_MAIL_ENABLED=true om aan te zetten.
+    raw = os.getenv("AFSPRAAK_BEVESTIGING_MAIL_ENABLED", "false").strip().lower()
+    return raw in {"1", "true", "ja", "yes"}
+
+
+def _build_afspraak_bevestiging_email(data: dict, sp_output: dict, run_value) -> tuple[str, str]:
+    is_prod = str(run_value).strip().lower() == "prod"
+    subject_prefix = "" if is_prod else "[TEST] "
+    subject = f"{subject_prefix}Uw afspraak is bevestigd"
+
+    afspraak_id = sp_output.get("afspraak_id")
+    datum_label = data["datum"].isoformat()
+    tijd_label = data["tijd"].strftime("%H:%M")
+    vorm_afspraak = str(data.get("vorm_afspraak") or "online").strip().lower()
+    vorm_label = "Buitendienst (bij u op locatie)" if vorm_afspraak == "buitendienst" else "Online"
+
+    test_banner = (
+        ""
+        if is_prod
+        else (
+            '<p style="color:#b00020;font-weight:bold;">Dit is een TESTbevestiging '
+            "(niet tegen productie) — geen actie ondernemen.</p>"
+        )
+    )
+
+    wijzig_knop = ""
+    if afspraak_id not in (None, "") and data.get("adviseur_ids") and data.get("email"):
+        agendapicker_base = os.getenv(
+            "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net"
+        ).rstrip("/")
+
+        query_params = {
+            "afspraak_id": afspraak_id,
+            "autostart": "1",
+            "email": data["email"],
+            "adviseur_id": data["adviseur_ids"][0],
+            "duur_kwartieren": data["duur_kwartieren"],
+            "vorm_afspraak": vorm_afspraak,
+            "run": run_value or "",
+        }
+        if vorm_afspraak == "buitendienst" and data.get("postcode"):
+            query_params["postcode"] = data["postcode"]
+
+        wijzig_link_url = f"{agendapicker_base}/wijzig-afspraak.html?{urlencode(query_params)}"
+        wijzig_knop = (
+            '<p style="margin-top:16px;">'
+            f'<a href="{html.escape(wijzig_link_url, quote=True)}" style="background-color:#1a3c6e;'
+            'color:#ffffff;padding:8px 16px;border-radius:4px;text-decoration:none;display:inline-block;">'
+            "Afspraak wijzigen</a>"
+            "</p>"
+        )
+
+    html_body = (
+        '<div style="font-family:Segoe UI, Arial, sans-serif;color:#222;max-width:600px;">'
+        '<h2 style="color:#1a3c6e;">Uw afspraak is bevestigd</h2>'
+        f"{test_banner}"
+        '<table style="border-collapse:collapse;width:100%;">'
+        f'<tr><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;font-weight:bold;'
+        f'white-space:nowrap;">Datum</td><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;">'
+        f"{html.escape(datum_label)}</td></tr>"
+        f'<tr><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;font-weight:bold;'
+        f'white-space:nowrap;">Tijd</td><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;">'
+        f"{html.escape(tijd_label)}</td></tr>"
+        f'<tr><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;font-weight:bold;'
+        f'white-space:nowrap;">Vorm</td><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;">'
+        f"{html.escape(vorm_label)}</td></tr>"
+        "</table>"
+        f"{wijzig_knop}"
+        '<p style="color:#888;font-size:12px;margin-top:16px;">'
+        "Automatisch gegenereerd door AfspraakMaken."
+        "</p>"
+        "</div>"
+    )
+
+    return subject, html_body
+
+
+def _send_afspraak_bevestiging_email(data: dict, sp_output: dict, run_value) -> None:
+    email = str(data.get("email") or "").strip()
+    if not email:
+        return
+
+    override_to = os.getenv("WIJZIG_MAIL_OVERRIDE_TO", WIJZIG_MAIL_OVERRIDE_TO_DEFAULT).strip()
+    verzend_naar = override_to or email
+
+    subject, html_body = _build_afspraak_bevestiging_email(data, sp_output, run_value)
+    api_key = _require_any_env("MANDRILL_API_KEY")
+
+    response = requests.post(
+        "https://mandrillapp.com/api/1.0/messages/send.json",
+        json={
+            "key": api_key,
+            "message": {
+                "html": html_body,
+                "subject": subject,
+                "from_email": "planning@advitas.nl",
+                "from_name": "Advitas",
+                "to": [{"email": verzend_naar, "type": "to"}],
+            },
+        },
+        timeout=15,
+    )
+    if response.status_code >= 300:
+        raise RuntimeError(f"Mandrill sendMail-fout ({response.status_code}): {response.text[:500]}")
+
+    try:
+        result = response.json()
+    except ValueError:
+        result = None
+
+    if isinstance(result, dict) and result.get("status") == "error":
+        raise RuntimeError(f"Mandrill wees de aanvraag af: {result}")
+
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        eerste_status = result[0].get("status")
+        if eerste_status in {"rejected", "invalid"}:
+            raise RuntimeError(f"Mandrill wees de mail af: {result[0]}")
+
+
+def _try_send_afspraak_bevestiging_email(data: dict, sp_output: dict, run_value) -> None:
+    try:
+        _send_afspraak_bevestiging_email(data, sp_output, run_value)
+    except Exception:
+        logging.exception("Fout bij versturen van afspraak-bevestigingsmail")
 
 
 def _normalize_name(name: str) -> str:
@@ -999,6 +1130,11 @@ def afspraak(req: func.HttpRequest) -> func.HttpResponse:
 
         sp_result = _call_sp_maak_afspraak(cursor, data)
         conn.commit()
+
+        if _afspraak_bevestiging_mail_ingeschakeld():
+            _try_send_afspraak_bevestiging_email(
+                data, sp_result["output"], payload.get("run") if isinstance(payload, dict) else None
+            )
 
         return func.HttpResponse(
             json.dumps(

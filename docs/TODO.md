@@ -30,7 +30,15 @@
   deze sessie is aangemaakt) — zie `docs/superpowers/plans/2026-09-03-wijzig-afspraak-pincode.md` voor de
   curl-commando's om dat handmatig te doen.
 - [ ] **TIJDELIJK, moet ongedaan gemaakt worden vóór een release naar echte klanten:** de pincode-mail
-  gaat momenteel altijd naar `rvader@advitas.nl` in plaats van naar het opgegeven klant-e-mailadres
-  (`WIJZIG_MAIL_OVERRIDE_TO_DEFAULT` in `function_app.py`, expliciet aangevraagd 2026-09-03 voor
-  testdoeleinden). Verwijder deze default (of zet env var `WIJZIG_MAIL_OVERRIDE_TO` leeg) zodra er weer
-  naar echte klant-e-mailadressen gemaild moet worden.
+  én de nieuwe afspraak-bevestigingsmail gaan momenteel altijd naar `rvader@advitas.nl` in plaats van
+  naar het opgegeven klant-e-mailadres (`WIJZIG_MAIL_OVERRIDE_TO_DEFAULT` in `function_app.py`, expliciet
+  aangevraagd 2026-09-03 voor testdoeleinden). Verwijder deze default (of zet env var
+  `WIJZIG_MAIL_OVERRIDE_TO` leeg) zodra er weer naar echte klant-e-mailadressen gemaild moet worden.
+- [ ] **Nieuw, UIT by default:** `/afspraak` kan nu optioneel een bevestigingsmail met "Afspraak
+  wijzigen"-knop naar de klant sturen (`_try_send_afspraak_bevestiging_email`), maar alleen als
+  `AFSPRAAK_BEVESTIGING_MAIL_ENABLED=true` staat — standaard `false`, juist omdat `/afspraak` een
+  bestaand, al in productie actief endpoint is. Zet deze env var pas op `true` nadat de hele
+  wijzig-afspraak-flow (inclusief de nog te bouwen `spWijzigAfspraakDatumTijd`) end-to-end getest is,
+  anders krijgen klanten een "Afspraak wijzigen"-knop die nog niet werkt.
+- [ ] `AFSPRAAK_BEVESTIGING_MAIL_ENABLED` toevoegen aan de App Settings (staat al met default `false`
+  in `local.settings.json.example`).

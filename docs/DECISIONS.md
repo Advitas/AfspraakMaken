@@ -162,3 +162,30 @@ ook niet in productie als `WIJZIG_MAIL_OVERRIDE_TO` daar niet expliciet leeg gez
 verwijderd worden vóór een release naar echte klanten (zie `docs/TODO.md`). Om het te deactiveren: zet
 `WIJZIG_MAIL_OVERRIDE_TO` op een lege string in de App Settings, of verwijder de default-constante uit de
 code.
+
+## 2026-09-03 — Afspraak-bevestigingsmail met wijzig-knop, UIT by default
+
+**Context:** de wijzig-afspraak-flow (pincode + AgendaPicker) is af, maar er was nog geen manier voor een
+klant om 'm daadwerkelijk te starten — de "autostart"-link (ADR-003 in AgendaPicker) heeft een
+afzender nodig. De gebruiker vroeg om een "Afspraak wijzigen"-knop in de afspraak-bevestiging.
+
+**Beslissing:** `/afspraak` (POST) kan nu, ná een succesvolle aanmaak, een bevestigingsmail naar de klant
+sturen (`_build_afspraak_bevestiging_email`/`_send_afspraak_bevestiging_email`/
+`_try_send_afspraak_bevestiging_email`, non-blocking zoals de andere mail-helpers). De mail toont
+datum/tijd/vorm (geen interne ids zoals adviseur_id — bewust weggelaten, consistent met de eerdere
+beslissing om adviseur-info aan klanten te beperken) en een "Afspraak wijzigen"-knop die naar
+`wijzig-afspraak.html` linkt met `autostart=1` + alle velden die `/wijzig-aanvraag` nodig heeft
+(afspraak_id, email, adviseur_id — de eerste uit de lijst, duur_kwartieren, vorm_afspraak, postcode bij
+buitendienst, run). `_parse_payload` accepteert nu ook een optioneel `postcode`-veld (nodig voor de
+buitendienst-tak van de link). **Bewust UIT by default** (`AFSPRAAK_BEVESTIGING_MAIL_ENABLED`, default
+`"false"`): `/afspraak` is een bestaand, al in productie actief endpoint dat door andere systemen wordt
+aangeroepen — een e-mail-side-effect zomaar aanzetten zou ongemerkt echte klanten gaan mailen zodra deze
+wijziging gedeployed wordt. De mail respecteert (tijdelijk) dezelfde `WIJZIG_MAIL_OVERRIDE_TO` als de
+pincode-mail (zie vorige ADR).
+
+**Gevolgen:** zonder `AFSPRAAK_BEVESTIGING_MAIL_ENABLED=true` verandert er niets aan het bestaande gedrag
+van `/afspraak`. Pas nadat de hele wijzig-flow end-to-end getest is (incl. `spWijzigAfspraakDatumTijd`,
+zie eerdere ADR's) moet deze env var op `true` gezet worden — anders krijgen klanten een knop die naar
+een nog niet werkende flow leidt. De knop verschijnt alleen als er een `afspraak_id`, minstens één
+`adviseur_id` én een `email` bekend zijn; ontbreekt een van die, dan wordt de bevestigingsmail wel
+verstuurd (als er een e-mailadres is) maar zonder wijzig-knop.

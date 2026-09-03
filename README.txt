@@ -146,3 +146,22 @@ Nieuwe environment variable:
   tijdelijke pincode-opslag)
 - AGENDAPICKER_BASE_URL (optioneel, default
   https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net — basis-URL voor de link in de pincode-mail)
+
+---
+
+Afspraak-bevestigingsmail naar de klant (UIT by default)
+
+/afspraak (POST) kan optioneel, na een succesvolle aanmaak, een bevestigingsmail naar de klant
+(`email`-veld uit de body) sturen met datum/tijd/vorm en een "Afspraak wijzigen"-knop die naar
+AgendaPicker's wijzig-afspraak.html?...&autostart=1 linkt (start automatisch een pincode-aanvraag).
+
+Standaard UIT — /afspraak is een bestaand, al in productie actief endpoint; dit voorkomt dat er
+ongemerkt bevestigingsmails naar echte klanten gaan zodra deze wijziging gedeployed wordt.
+
+Nieuwe environment variable:
+- AFSPRAAK_BEVESTIGING_MAIL_ENABLED (optioneel, default "false" — zet op "true" om de
+  bevestigingsmail daadwerkelijk te versturen)
+
+De mail respecteert (tijdelijk, zie docs/DECISIONS.md 2026-09-03) dezelfde WIJZIG_MAIL_OVERRIDE_TO als
+de pincode-mail — zolang die actief is, gaat ook déze mail naar het override-adres in plaats van naar
+het echte klant-e-mailadres.
