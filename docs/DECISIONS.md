@@ -91,3 +91,28 @@ reden van afwijzing. De drie nieuwe endpoints zijn alleen syntactisch/statisch g
 — `local.settings.json` ontbrak in de checkout (mag ook niet door Claude aangemaakt worden, zie
 Kritieke Regels in `CLAUDE.md`), dus live curl-verificatie tegen `SQL_DATABASE_TEST` en een echte Storage
 Account staat nog open (zie `docs/TODO.md`).
+
+## 2026-09-03 — Concreet voorstel voor spWijzigAfspraakDatumTijd op basis van het echte Afspraak-schema
+
+**Context:** de gebruiker deelde de broncode van `[PowerBI].[usp_Reservering_OmzettenNaarAfspraak]` (de
+bestaande SP die een reservering omzet naar een afspraak), wat voor het eerst het echte schema van
+`[dbo].[Afspraak]` blootlegt: kolommen `klant_id`, `saleop_id`, `adviseur_id`, `datum_adviesgesprek`,
+`tijd_adviesgesprek`, `[afspraakstate-id]`, `[insteek-id]`, `[prodcat-id]`, `vorm_afspraak`, `duur`,
+`opm_afspraak`, `datum_gepland`, `Check_belangrijk`, `check_inbehandeling`, `created_at`, `updated_at`.
+Opvallend: `tijd_adviesgesprek` bevat (via de COALESCE/TRY_CONVERT-fallback in die SP) de volle datum+tijd,
+niet alleen het tijdsdeel; `vorm_afspraak` wordt daar hardcoded als `N'Online'` weggeschreven (Titel-case).
+
+**Beslissing:** een concreet voorstel voor `spWijzigAfspraakDatumTijd` is toegevoegd als
+`sql/spWijzigAfspraakDatumTijd.sql` (nieuwe map, naar analogie van het `sql/`-mapje dat AgendaPicker en
+AfspraakPlanner al gebruiken voor SP-scripts). Het contract (parameternamen/types) is ongewijzigd t.o.v. de
+eerdere ADR — alleen het `UPDATE`-lichaam is nu ingevuld, met dezelfde TRY/CATCH/transactie-stijl als
+`usp_Reservering_OmzettenNaarAfspraak`. Twee aannames zijn NIET bevestigd en moeten vóór uitvoering
+geverifieerd worden: (1) de PK-kolom van `[dbo].[Afspraak]` heet `[afspraak_id]` — het aangeleverde
+script bevat geen WHERE-lookup op de PK, dus dit is puur naamgevingsconsistentie met de rest van de
+codebase, geen bevestigd feit; (2) `vorm_afspraak = 'Buitendienst'` is een aanname naar analogie met het
+bevestigde `'Online'`.
+
+**Gevolgen:** dit script is NIET uitgevoerd en NIET getest — Claude heeft geen SQL-uitvoeringstoegang.
+Een DBA (of Rob/Daniel) moet het reviewen, de twee aannames verifiëren tegen het echte
+`[dbo].[Afspraak]`-schema, en het handmatig uitvoeren op `SQL_DATABASE_TEST` vóór `/wijzig-opslaan`
+end-to-end getest kan worden.
