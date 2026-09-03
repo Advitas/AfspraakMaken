@@ -1352,3 +1352,164 @@ def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
         status_code=200,
         mimetype="application/json",
     )
+
+
+def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
+    cursor.execute(
+        """
+        DECLARE @foutmelding NVARCHAR(500);
+
+        EXEC [dbo].[spWijzigAfspraakDatumTijd]
+            @afspraak_id = ?,
+            @adviseur_id = ?,
+            @datum = ?,
+            @tijd = ?,
+            @duur_kwartieren = ?,
+            @vorm_afspraak = ?,
+            @foutmelding = @foutmelding OUTPUT;
+
+        SELECT @foutmelding AS foutmelding;
+        """,
+        data["afspraak_id"],
+        data["adviseur_id"],
+        data["datum"],
+        data["tijd"],
+        data["duur_kwartieren"],
+        data["vorm_afspraak"],
+    )
+
+    result_sets = _read_all_result_sets(cursor)
+    output = {}
+    if result_sets and result_sets[-1]:
+        output = result_sets[-1][0]
+        result_sets = result_sets[:-1]
+
+    return {"output": output, "result_sets": result_sets}
+
+
+def _parse_wijzig_opslaan_payload(payload: dict) -> dict:
+    afspraak_id = _require(payload.get("afspraak_id"), "afspraak_id")
+    pincode = _require(payload.get("pincode"), "pincode")
+    adviseur_id = int(_require(payload.get("adviseur_id"), "adviseur_id"))
+
+    try:
+        datum = date.fromisoformat(str(_require(payload.get("datum"), "datum")))
+    except ValueError as ex:
+        raise ValidationError("'datum' moet formaat YYYY-MM-DD hebben, bijvoorbeeld 2026-06-24.") from ex
+
+    try:
+        tijd = time.fromisoformat(str(_require(payload.get("tijd"), "tijd")))
+    except ValueError as ex:
+        raise ValidationError("'tijd' moet formaat HH:MM of HH:MM:SS hebben, bijvoorbeeld 14:30.") from ex
+
+    duur_kwartieren = int(_require(payload.get("duur_kwartieren"), "duur_kwartieren"))
+    if duur_kwartieren < 1:
+        raise ValidationError("'duur_kwartieren' moet minimaal 1 zijn.")
+
+    vorm_afspraak = str(_require(payload.get("vorm_afspraak"), "vorm_afspraak")).strip().lower()
+    if vorm_afspraak not in {"online", "buitendienst"}:
+        raise ValidationError("'vorm_afspraak' moet 'online' of 'buitendienst' zijn.")
+
+    return {
+        "afspraak_id": afspraak_id,
+        "pincode": pincode,
+        "adviseur_id": adviseur_id,
+        "datum": datum,
+        "tijd": tijd,
+        "duur_kwartieren": duur_kwartieren,
+        "vorm_afspraak": vorm_afspraak,
+        "run": payload.get("run"),
+    }
+
+
+@app.route(route="wijzig-opslaan", methods=["POST"])
+def wijzig_opslaan(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("Wijzig-opslaan API aangeroepen")
+
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return func.HttpResponse(
+            json.dumps({"error": "Body moet geldige JSON zijn."}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    try:
+        data = _parse_wijzig_opslaan_payload(payload)
+    except (ValidationError, ValueError) as ex:
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    try:
+        _valideer_pincode(data["afspraak_id"], data["pincode"])
+    except ValidationError as ex:
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    conn = None
+    cursor = None
+    try:
+        conn = _get_connection(data["run"])
+        cursor = conn.cursor()
+
+        sp_result = _call_sp_wijzig_afspraak(cursor, data)
+        foutmelding = sp_result["output"].get("foutmelding")
+
+        if foutmelding:
+            conn.rollback()
+            return func.HttpResponse(
+                json.dumps(
+                    {"error": "Stored procedure gaf een foutmelding.", "stored_procedure_output": sp_result["output"]},
+                    default=str,
+                ),
+                status_code=500,
+                mimetype="application/json",
+            )
+
+        conn.commit()
+        _verwijder_pincode_record(data["afspraak_id"])
+
+        return func.HttpResponse(
+            json.dumps({"result": "success", "stored_procedure_output": sp_result["output"]}, default=str),
+            status_code=200,
+            mimetype="application/json",
+        )
+    except RuntimeError as ex:
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=500,
+            mimetype="application/json",
+        )
+    except pyodbc.Error as ex:
+        logging.exception("Databasefout bij aanroepen van spWijzigAfspraakDatumTijd")
+        if conn:
+            conn.rollback()
+        return func.HttpResponse(
+            json.dumps(
+                {"error": "Databasefout bij uitvoeren van stored procedure.", "details": _extract_db_error_details(ex)},
+                default=str,
+            ),
+            status_code=500,
+            mimetype="application/json",
+        )
+    except Exception:
+        logging.exception("Fout bij aanroepen van spWijzigAfspraakDatumTijd")
+        if conn:
+            conn.rollback()
+        return func.HttpResponse(
+            json.dumps({"error": "Interne fout bij uitvoeren van stored procedure."}),
+            status_code=500,
+            mimetype="application/json",
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
