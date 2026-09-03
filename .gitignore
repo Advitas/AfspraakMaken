@@ -3,3 +3,13 @@
 .claude/.template-source
 .claude/.DS_Store
 .claude/worktrees/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets — nooit committen, alleen local.settings.json.example
+local.settings.json
+.env
+.env.*
