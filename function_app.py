@@ -1296,3 +1296,59 @@ def wijzig_aanvraag(req: func.HttpRequest) -> func.HttpResponse:
         status_code=200,
         mimetype="application/json",
     )
+
+
+@app.route(route="wijzig-verificatie", methods=["POST"])
+def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("Wijzig-verificatie API aangeroepen")
+
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return func.HttpResponse(
+            json.dumps({"error": "Body moet geldige JSON zijn."}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    try:
+        afspraak_id = _require(payload.get("afspraak_id"), "afspraak_id")
+        pincode = _require(payload.get("pincode"), "pincode")
+    except (ValidationError, ValueError) as ex:
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    try:
+        record = _valideer_pincode(afspraak_id, pincode)
+    except ValidationError as ex:
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=400,
+            mimetype="application/json",
+        )
+    except Exception:
+        logging.exception("Fout bij verifiëren van pincode")
+        return func.HttpResponse(
+            json.dumps({"error": "Interne fout bij verifiëren van de pincode."}),
+            status_code=500,
+            mimetype="application/json",
+        )
+
+    return func.HttpResponse(
+        json.dumps(
+            {
+                "result": "success",
+                "adviseur_id": record.get("AdviseurId"),
+                "duur_kwartieren": record.get("DuurKwartieren"),
+                "vorm_afspraak": record.get("VormAfspraak"),
+                "postcode": record.get("Postcode") or None,
+                "run": record.get("Run") or None,
+            },
+            default=str,
+        ),
+        status_code=200,
+        mimetype="application/json",
+    )
