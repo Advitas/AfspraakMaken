@@ -18,6 +18,11 @@
   Oorsprong, Oorsprong_categorie, insteek_id, en field_contents_4 t/m 12) staan op `NULL` omdat daar geen
   waarde voor is aangeleverd — check of dat businessmatig klopt. Tot uitvoering + verificatie geeft
   `/wijzig-opslaan` een databasefout ("procedure niet gevonden").
+- [ ] Rechten controleren/zetten voor `svc-AppMaakAfspraak` op de nieuwe SP + onderliggende tabellen
+  (`EXECUTE` op `spWijzigAfspraakDatumTijd`, `SELECT`/`UPDATE` op `Afspraak`, `INSERT` op `actions`,
+  `SELECT` op `users`) — de GRANT-statements staan onderaan `sql/spWijzigAfspraakDatumTijd.sql`. Zelfde
+  soort probleem als de buitendienst-500 uit `docs/DECISIONS.md` (2026-09-01) trad eerder al op zonder
+  deze rechten.
 - [ ] Bevestigen dat `MANDRILL_API_KEY` en `AzureWebJobsStorage` correct in de Function App's App Settings
   staan voor de nieuwe wijzig-pincode-mail en pincode-opslag.
 - [ ] `/wijzig-aanvraag`, `/wijzig-verificatie`, `/wijzig-opslaan` zijn nog niet live getest tegen

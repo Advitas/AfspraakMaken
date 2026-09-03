@@ -166,3 +166,22 @@ BEGIN
   END CATCH
 END;
 GO
+
+/****** Rechten voor het service-account waarmee AfspraakMaken verbindt.
+Zelfde patroon als de buitendienst-availability-fix, zie docs/DECISIONS.md 2026-09-01
+"Root cause buitendienst-500 bevestigd" — ontbrekende GRANT EXECUTE/SELECT op een nieuwe SP +
+onderliggende tabellen gaf daar een generieke HTTP 500. Pas de gebruikersnaam hieronder aan als
+het service-account inmiddels anders heet dan svc-AppMaakAfspraak.
+
+Controleer eerst wat het account al heeft, om overbodige grants te vermijden:
+  SELECT pr.name AS principal, pe.permission_name, pe.state_desc, o.name AS object_name
+  FROM sys.database_permissions pe
+  JOIN sys.database_principals pr ON pe.grantee_principal_id = pr.principal_id
+  LEFT JOIN sys.objects o ON pe.major_id = o.object_id
+  WHERE pr.name = 'svc-AppMaakAfspraak';
+******/
+GRANT EXECUTE ON [dbo].[spWijzigAfspraakDatumTijd] TO [svc-AppMaakAfspraak];
+GRANT SELECT, UPDATE ON [dbo].[Afspraak] TO [svc-AppMaakAfspraak];
+GRANT INSERT ON [dbo].[actions] TO [svc-AppMaakAfspraak];
+GRANT SELECT ON [dbo].[users] TO [svc-AppMaakAfspraak];
+GO
