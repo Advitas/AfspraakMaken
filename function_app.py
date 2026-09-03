@@ -3,11 +3,14 @@ import json
 import logging
 import os
 import re
-from datetime import date, time
+import secrets
+from datetime import date, datetime, time, timedelta, timezone
 
 import azure.functions as func
 import pyodbc
 import requests
+from azure.core.exceptions import ResourceNotFoundError
+from azure.data.tables import TableServiceClient, UpdateMode
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
@@ -1033,3 +1036,89 @@ def afspraak(req: func.HttpRequest) -> func.HttpResponse:
             cursor.close()
         if conn:
             conn.close()
+
+
+PINCODE_TABLE_NAME = "WijzigAfspraakPincodes"
+PINCODE_GELDIGHEID_MINUTEN = 5
+PINCODE_MAX_POGINGEN = 5
+PINCODE_GENERIEKE_FOUTMELDING = "Ongeldige of verlopen pincode."
+
+
+def _genereer_pincode() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _get_pincode_table_client():
+    conn_str = _require_any_env("AzureWebJobsStorage")
+    service = TableServiceClient.from_connection_string(conn_str)
+    return service.create_table_if_not_exists(PINCODE_TABLE_NAME)
+
+
+def _bewaar_pincode_record(
+    afspraak_id, pincode: str, adviseur_id, duur_kwartieren: int, vorm_afspraak: str, postcode, run_value
+) -> None:
+    verloopt_op = datetime.now(timezone.utc) + timedelta(minutes=PINCODE_GELDIGHEID_MINUTEN)
+    entity = {
+        "PartitionKey": str(afspraak_id),
+        "RowKey": "pincode",
+        "Pincode": pincode,
+        "VerlooptOp": verloopt_op.isoformat(),
+        "Attempts": 0,
+        "AdviseurId": str(adviseur_id),
+        "DuurKwartieren": int(duur_kwartieren),
+        "VormAfspraak": vorm_afspraak,
+        "Postcode": str(postcode) if postcode not in (None, "") else "",
+        "Run": str(run_value) if run_value not in (None, "") else "",
+    }
+    table_client = _get_pincode_table_client()
+    table_client.upsert_entity(entity, mode=UpdateMode.REPLACE)
+
+
+def _haal_pincode_record(afspraak_id):
+    table_client = _get_pincode_table_client()
+    try:
+        return table_client.get_entity(partition_key=str(afspraak_id), row_key="pincode")
+    except ResourceNotFoundError:
+        return None
+
+
+def _verwijder_pincode_record(afspraak_id) -> None:
+    table_client = _get_pincode_table_client()
+    try:
+        table_client.delete_entity(partition_key=str(afspraak_id), row_key="pincode")
+    except ResourceNotFoundError:
+        pass
+
+
+def _verhoog_pincode_pogingen(afspraak_id, record) -> None:
+    nieuwe_pogingen = int(record.get("Attempts", 0)) + 1
+    if nieuwe_pogingen >= PINCODE_MAX_POGINGEN:
+        _verwijder_pincode_record(afspraak_id)
+        return
+
+    table_client = _get_pincode_table_client()
+    table_client.update_entity(
+        {"PartitionKey": str(afspraak_id), "RowKey": "pincode", "Attempts": nieuwe_pogingen},
+        mode=UpdateMode.MERGE,
+    )
+
+
+def _valideer_pincode(afspraak_id, ingevoerde_pincode) -> dict:
+    record = _haal_pincode_record(afspraak_id)
+    if record is None:
+        raise ValidationError(PINCODE_GENERIEKE_FOUTMELDING)
+
+    verloopt_op = datetime.fromisoformat(str(record.get("VerlooptOp")))
+    if datetime.now(timezone.utc) >= verloopt_op:
+        _verwijder_pincode_record(afspraak_id)
+        raise ValidationError(PINCODE_GENERIEKE_FOUTMELDING)
+
+    if int(record.get("Attempts", 0)) >= PINCODE_MAX_POGINGEN:
+        _verwijder_pincode_record(afspraak_id)
+        raise ValidationError(PINCODE_GENERIEKE_FOUTMELDING)
+
+    if str(record.get("Pincode")) != str(ingevoerde_pincode).strip():
+        _verhoog_pincode_pogingen(afspraak_id, record)
+        raise ValidationError(PINCODE_GENERIEKE_FOUTMELDING)
+
+    return record
