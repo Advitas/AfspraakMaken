@@ -1563,8 +1563,7 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
 
 
 def _parse_wijzig_opslaan_payload(payload: dict) -> dict:
-    email = str(_require(payload.get("email"), "email")).strip()
-    pincode = _require(payload.get("pincode"), "pincode")
+    afspraak_id = int(_require(payload.get("afspraak_id"), "afspraak_id"))
     adviseur_id = int(_require(payload.get("adviseur_id"), "adviseur_id"))
 
     try:
@@ -1586,8 +1585,7 @@ def _parse_wijzig_opslaan_payload(payload: dict) -> dict:
         raise ValidationError("'vorm_afspraak' moet 'online' of 'buitendienst' zijn.")
 
     return {
-        "email": email,
-        "pincode": pincode,
+        "afspraak_id": afspraak_id,
         "adviseur_id": adviseur_id,
         "datum": datum,
         "tijd": tijd,
@@ -1625,21 +1623,16 @@ def wijzig_opslaan(req: func.HttpRequest) -> func.HttpResponse:
         conn = _get_connection(data["run"])
         cursor = conn.cursor()
 
-        validatie = _call_sp_valideer_wijzig_pincode(cursor, data["email"], data["pincode"])
-
-        if not validatie or not validatie.get("geldig"):
-            conn.rollback()
-            foutmelding = (validatie or {}).get("foutmelding") or WIJZIG_PINCODE_GENERIEKE_FOUTMELDING
-            return func.HttpResponse(
-                json.dumps({"error": foutmelding}),
-                status_code=400,
-                mimetype="application/json",
-            )
-
-        # afspraak_id komt server-side uit de gevalideerde pincode, nooit rechtstreeks van de client
-        # vertrouwd — voorkomt dat iemand een andere afspraak_id dan waar de pincode bij hoort meestuurt.
+        # LET OP (2026-09-07): de pincode wordt bij opslaan niet meer herverifieerd — afspraak_id komt nu
+        # rechtstreeks van de client. Voorheen werd afspraak_id server-side afgeleid uit een hervalidatie
+        # van de pincode (zie /wijzig_verificatie hierboven en docs/DECISIONS.md), juist om te voorkomen
+        # dat een client een willekeurige afspraak_id kon meesturen. Bewuste, expliciet gevraagde
+        # afwijking van die aanpak (zie ADR van 2026-09-07): de 5-minuten-vervaltermijn van de pincode
+        # gaf een "verlopen pincode"-fout als een klant lang in de kalender aan het kiezen was. Gevolg:
+        # /wijzig_opslaan controleert nu geen enkele vorm van identiteit meer bij het opslaan zelf — wie
+        # de afspraak_id kent (of raadt) kan die wijzigen. Zie docs/TODO.md voor de openstaande risico's.
         sp_data = {
-            "afspraak_id": validatie["afspraak_id"],
+            "afspraak_id": data["afspraak_id"],
             "adviseur_id": data["adviseur_id"],
             "datum": data["datum"],
             "tijd": data["tijd"],

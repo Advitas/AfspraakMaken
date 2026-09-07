@@ -89,3 +89,13 @@
   `_build_wijzig_email` geen "Wijzig uw afspraak"-knop meer — de klant staat al op
   `wijzig-afspraak.html` wanneer de pincode-mail binnenkomt, dus de knop was overbodig. Zie
   `docs/DECISIONS.md`.
+- [x] **BEVEILIGINGSAFWIJKING, expliciet gevraagd (2026-09-07):** `/wijzig_opslaan` controleert de
+  pincode niet meer — `afspraak_id` komt nu rechtstreeks van de client i.p.v. server-side afgeleid uit
+  een pincode-hervalidatie (was het patroon sinds het e-mail-eerst-herontwerp van 2026-09-03). Reden:
+  de 5-minuten-vervaltermijn van de pincode gaf een "verlopen pincode"-fout als een klant lang in de
+  kalender aan het kiezen was. Zie de ADR van 2026-09-07 in `docs/DECISIONS.md` voor de volledige
+  afweging en het overwogen alternatief (alleen de tijdslimiet loslaten, wat de identiteitscontrole
+  wél had behouden). **Risico dat nog open staat:** wie een afspraak_id kent of raadt, kan die
+  wijzigen — er is geen enkele identiteitscontrole meer bij het opslaan zelf. Overweeg dit alsnog te
+  verzachten (bijv. een kortlevende, ondertekende token i.p.v. kale afspraak_id) als dit in productie
+  gaat.

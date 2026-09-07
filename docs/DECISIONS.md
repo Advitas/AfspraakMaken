@@ -356,3 +356,42 @@ test-/override-banners.
 **Gevolgen:** geen — dit is een geïsoleerde wijziging in de e-mail-body, geen wijziging aan de
 `AGENDAPICKER_BASE_URL`-env var (die blijft in gebruik voor de link in de afspraak-bevestigingsmail,
 zie eerdere ADR).
+
+---
+
+## 2026-09-07 — `/wijzig_opslaan` controleert de pincode niet meer bij opslaan
+
+**Context:** sinds het e-mail-eerst-herontwerp (ADR van 2026-09-03) werd `afspraak_id` bij zowel
+`/wijzig_verificatie` als `/wijzig_opslaan` altijd server-side afgeleid uit een geslaagde
+pincode-hervalidatie — bewust, om te voorkomen dat een client een willekeurige `afspraak_id` kon
+meesturen. In de praktijk bleek dit te knellen: de pincode is 5 minuten geldig, en een klant die
+langer dan dat in de AgendaPicker-kalender aan het kiezen is (bijv. tussen meerdere maanden bladert),
+kreeg bij het klikken op "Opslaan" een "ongeldige of verlopen pincode"-fout, ondanks dat diezelfde
+klant een paar minuten eerder wél een geldige pincode had ingevoerd. De gebruiker vroeg expliciet:
+*"als ik in het datum keuze grid zit en ik wil opslaan dan moet er niet meer gekontroleerd te worden
+of de pin nog geldig is"*.
+
+Voordat dit geïmplementeerd werd, is de gebruiker gevraagd te kiezen tussen twee opties: (1) alleen de
+5-minuten-vervaltermijn loslaten bij opslaan, met behoud van de pincode-juistheidscontrole (en dus
+behoud van de server-side afspraak_id-afleiding), of (2) de pincode-controle bij opslaan volledig
+weglaten. De gebruiker koos expliciet voor optie (2), met de beschreven consequentie (afspraak_id moet
+dan van de client komen) vooraf duidelijk gemaakt.
+
+**Beslissing:** `/wijzig_opslaan` roept `_call_sp_valideer_wijzig_pincode` niet meer aan.
+`_parse_wijzig_opslaan_payload` vereist nu `afspraak_id` (int) in de request body i.p.v.
+`email`/`pincode`, en dat `afspraak_id` wordt rechtstreeks doorgegeven aan
+`[dbo].[spWijzigAfspraakDatumTijd]`. `/wijzig_verificatie` is **niet** gewijzigd — die blijft de
+pincode volledig valideren (juistheid, vervaltermijn, max pogingen) zoals voorheen, dat is en blijft de
+enige plek waar de identiteit van de klant daadwerkelijk gecontroleerd wordt in deze flow.
+
+**Gevolgen:** dit is een bewuste, expliciet door de gebruiker gekozen afwijking van het eerder
+vastgelegde beveiligingsprincipe "`afspraak_id` komt nooit van de client". Concreet risico: wie een
+`afspraak_id` kent of raadt (het is een oplopend integer, dus optellen/aftrekken van een bekende waarde
+volstaat al), kan via `/wijzig_opslaan` diens datum/tijd/adviseur wijzigen zonder enige
+identiteitscontrole op dat moment — de eerdere pincode-verificatie bij `/wijzig_verificatie` garandeert
+niets meer over wie uiteindelijk de opslaan-aanroep doet. AgendaPicker's `server.js` en
+`wijzig-afspraak.js` zijn aangepast om `afspraak_id` (uit de eerdere verificatiestap, lokaal
+onthouden) mee te sturen i.p.v. `email`/`pincode` — zie AgendaPicker's `docs/DECISIONS.md`. Overweeg
+bij een go-live naar echte klanten alsnog een lichtere vorm van bescherming (bijv. een kortlevende,
+ondertekende token die bij `/wijzig_verificatie` wordt afgegeven en bij `/wijzig_opslaan` wordt
+geverifieerd, zonder de 5-minuten-tijdsdruk van de pincode zelf).

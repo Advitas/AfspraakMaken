@@ -143,11 +143,18 @@ prodcat_id — hypotheek/vermogen/schade) van de gekoppelde afspraak (voor de ka
 in AgendaPicker).
 
 POST /api/wijzig_opslaan
-Body: { email, pincode, adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, run }
-Gedrag: valideert de pincode opnieuw (afspraak_id komt server-side uit die validatie, nooit van de
-client), roept [dbo].[spWijzigAfspraakDatumTijd] aan. Die procedure ruimt de pincode zelf op bij succes
-(one-time use). Let op: deze stored procedure + de drie pincode-SP's hierboven bestaan nog niet in SQL
-Server (zie docs/TODO.md) — tot die tijd geven deze endpoints een databasefout.
+Body: { afspraak_id, adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, run }
+Gedrag: roept direct [dbo].[spWijzigAfspraakDatumTijd] aan met de meegestuurde afspraak_id. Die
+procedure ruimt de bijbehorende pincode-rij zelf op bij succes (one-time use, opgeruimd op afspraak_id).
+
+LET OP (2026-09-07, bewuste afwijking van het beveiligingsmodel hierboven): dit endpoint controleert
+GEEN pincode meer — afspraak_id komt rechtstreeks van de client i.p.v. server-side afgeleid uit een
+hervalidatie van de pincode. Voorheen (zoals /wijzig_verificatie hierboven nog doet) werd afspraak_id
+altijd server-side bepaald, juist om te voorkomen dat een client een willekeurige afspraak_id kon
+meesturen. Deze wijziging is expliciet door de gebruiker gevraagd omdat de 5-minuten-vervaltermijn van
+de pincode een "verlopen pincode"-fout gaf als een klant lang in de AgendaPicker-kalender aan het
+kiezen was. Gevolg: wie een afspraak_id kent (of raadt/opsomt) kan die wijzigen zonder verdere
+identiteitscontrole bij het opslaan zelf. Zie docs/DECISIONS.md voor de volledige afweging.
 
 Nieuwe environment variable:
 - AGENDAPICKER_BASE_URL (optioneel, default
