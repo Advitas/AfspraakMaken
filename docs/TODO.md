@@ -146,3 +146,22 @@
   AgendaPicker's `docs/DECISIONS.md`). Geverifieerd met gemockte `_call_sp_dynamic` (geen echte
   DB-connectie nodig): correcte dag-range voor een gewone maand, jaarwissel (december→januari) en
   schrikkeljaar (29 dagen in februari).
+- [x] **Bug gevonden en gefixt: transactiefout in `spWijzigAfspraakDatumTijd` (2026-09-07):**
+  `/wijzig_opslaan` gaf een 500 met "Transaction count after EXECUTE indicates a mismatching number
+  of BEGIN and COMMIT statements" (SQL-foutcode 266). Root cause: pyodbc gebruikt `autocommit=False`,
+  dus er staat al een ambient transactie open (`@@TRANCOUNT=1`) vóórdat de SP wordt aangeroepen. De
+  SP's onvoorwaardelijke `ROLLBACK TRANSACTION` bij "afspraak niet gevonden" rolt in SQL Server
+  ALTIJD terug tot `TRANCOUNT=0` (ongeacht nesting), en rolt dus ook de ambient transactie van de
+  Python-caller weg. Gefixt met een nesting-safe patroon (`@ownsTransaction`-vlag): de SP doet alleen
+  zelf `BEGIN`/`COMMIT`/`ROLLBACK TRANSACTION` als hij `@@TRANCOUNT=0` aantreft bij binnenkomst;
+  anders laat hij het transactiebeheer aan de caller (die dat al correct deed via `conn.commit()`/
+  `conn.rollback()` in `wijzig_opslaan`). Vereist een nieuwe deploy van
+  `sql/spWijzigAfspraakDatumTijd.sql` (en `sql/alles_in_1_wijzig_afspraak.sql`).
+- [ ] **Zelfde sluimerende risico gespot in `sql/spBewaarWijzigPincode.sql`:** die procedure heeft
+  hetzelfde patroon (onvoorwaardelijke `BEGIN TRANSACTION` + `ROLLBACK TRANSACTION` in de CATCH,
+  aangeroepen via dezelfde niet-autocommit pyodbc-connectie). Nog niet daadwerkelijk geraakt — er zit
+  geen vroege "business logic"-return-met-rollback in, alleen een DELETE+INSERT die zelden faalt —
+  maar bij een onverwachte databasefout zou dezelfde transactiecount-mismatch (SQL-foutcode 266) hier
+  ook kunnen optreden. Niet stilzwijgend meegefixt (buiten scope van het gerapporteerde incident) —
+  overweeg hetzelfde `@ownsTransaction`-patroon toe te passen als hier ooit een vergelijkbare fout
+  optreedt, of proactief bij een volgende SQL-deploy.

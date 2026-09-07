@@ -54,7 +54,17 @@ BEGIN
     CONVERT(varchar(10), @datum, 120) + ' ' + CONVERT(varchar(8), @tijd, 108) AS datetime2
   );
 
-  BEGIN TRANSACTION;
+  -- Nesting-safe transactiebeheer: deze SP wordt aangeroepen via pyodbc met autocommit=False, dus
+  -- de caller heeft meestal al een ambient transactie open (@@TRANCOUNT = 1) vóórdat deze SP start.
+  -- Een onvoorwaardelijke ROLLBACK TRANSACTION rolt in SQL Server ALTIJD terug tot TRANCOUNT 0,
+  -- ongeacht nesting-diepte — dat rolt dus ook de ambient transactie van de caller weg, wat de
+  -- "Transaction count after EXECUTE indicates a mismatching number of BEGIN and COMMIT
+  -- statements"-fout (266) veroorzaakte (bevestigd 2026-09-07). Alleen zelf BEGIN/COMMIT/ROLLBACK
+  -- doen als deze SP de transactie ook echt zelf is gestart.
+  DECLARE @ownsTransaction bit = CASE WHEN @@TRANCOUNT = 0 THEN 1 ELSE 0 END;
+
+  IF @ownsTransaction = 1
+    BEGIN TRANSACTION;
 
   BEGIN TRY
     -- sale_oppertunity_id van de bestaande afspraak ophalen (nodig voor de actions-insert
@@ -67,7 +77,8 @@ BEGIN
 
     IF @@ROWCOUNT = 0
     BEGIN
-      ROLLBACK TRANSACTION;
+      IF @ownsTransaction = 1
+        ROLLBACK TRANSACTION;
       SET @foutmelding = N'Afspraak niet gevonden.';
       RETURN;
     END;
@@ -165,10 +176,12 @@ BEGIN
     -- Zie sql/WijzigAfspraakPincodes_tabel.sql / sql/spBewaarWijzigPincode.sql / sql/spValideerWijzigPincode.sql.
     DELETE FROM [dbo].[WijzigAfspraakPincodes] WHERE [afspraak_id] = @afspraak_id;
 
-    COMMIT TRANSACTION;
+    IF @ownsTransaction = 1
+      COMMIT TRANSACTION;
   END TRY
   BEGIN CATCH
-    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    IF @ownsTransaction = 1 AND @@TRANCOUNT > 0
+      ROLLBACK TRANSACTION;
     SET @foutmelding = ERROR_MESSAGE();
   END CATCH
 END;

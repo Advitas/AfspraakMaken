@@ -572,3 +572,37 @@ ontvingen `run_value` al als parameter, dus geen wijziging nodig aan de aanroepe
 gaat `run=test` naar `rvader@advitas.nl` en `run=prod` naar leeg (dus het echte klantadres); met een
 expliciete env var (ook een lege string) wint die altijd, in beide richtingen. Test-aanvragen blijven
 dus veilig naar het testadres gaan, ook nu de eerdere "altijd omleiden"-instelling is losgelaten.
+
+---
+
+## 2026-09-07 — Transactiefout in spWijzigAfspraakDatumTijd: nesting-safe BEGIN/COMMIT/ROLLBACK
+
+**Context:** de gebruiker rapporteerde een 500 bij `/wijzig_opslaan`: *"Transaction count after EXECUTE
+indicates a mismatching number of BEGIN and COMMIT statements. Previous count = 1, current count =
+0."* (SQL-foutcode 266). Root cause: `function_app.py` verbindt via `pyodbc.connect(...)` zonder
+`autocommit=True` te zetten, dus de connectie draait standaard met `autocommit=False` — de ODBC-driver
+houdt daardoor al een ambient transactie open (`@@TRANCOUNT=1`) op het moment dat
+`EXEC [dbo].[spWijzigAfspraakDatumTijd]` wordt aangeroepen. De procedure deed zelf ook een
+onvoorwaardelijke `BEGIN TRANSACTION` (→ `TRANCOUNT=2`) en, bij "afspraak niet gevonden", een
+onvoorwaardelijke `ROLLBACK TRANSACTION`. In SQL Server rolt een kale `ROLLBACK TRANSACTION` (zonder
+naam/savepoint) altijd helemaal terug tot `TRANCOUNT=0`, ongeacht de nesting-diepte — dat rolde dus
+ook de ambient transactie van de Python-caller weg, wat de mismatch-fout veroorzaakte. Deze bug
+bestond vermoedelijk al langer, maar werd pas zichtbaar toen (door de "geen pincode-check meer bij
+opslaan"-wijziging, ADR van eerder deze dag) een client-aangeleverde `afspraak_id` voor het eerst kon
+leiden tot een `@@ROWCOUNT=0`-situatie (afspraak niet gevonden) zonder eerdere server-side validatie.
+
+**Beslissing:** `spWijzigAfspraakDatumTijd` bepaalt nu bij binnenkomst `@ownsTransaction = CASE WHEN
+@@TRANCOUNT = 0 THEN 1 ELSE 0 END`. Alleen als de procedure zelf de transactie is gestart
+(`@ownsTransaction = 1`, d.w.z. aangeroepen zonder ambient transactie) doet hij zelf
+`BEGIN`/`COMMIT`/`ROLLBACK TRANSACTION`. Is er al een ambient transactie (de normale situatie via
+pyodbc), dan raakt de procedure `@@TRANCOUNT` helemaal niet aan — hij zet bij een fout alleen
+`@foutmelding`, en de Python-laag (`wijzig_opslaan` in `function_app.py`) deed al correct
+`conn.rollback()`/`conn.commit()` op basis daarvan, dus die kant hoefde niet aangepast te worden.
+
+**Gevolgen:** vereist een nieuwe deploy van `sql/spWijzigAfspraakDatumTijd.sql` (en
+`sql/alles_in_1_wijzig_afspraak.sql`, waarin dezelfde wijziging is doorgevoerd — geverifieerd met
+`diff` dat de procedure-code, los van enkele pre-existing commentaarverschillen, identiek is tussen
+beide bestanden). Geen wijziging aan `function_app.py` nodig. Dit patroon (nesting-safe
+transactiebeheer) is relevant voor elke toekomstige stored procedure die expliciete
+`BEGIN`/`COMMIT`/`ROLLBACK TRANSACTION` gebruikt én via een niet-autocommit pyodbc-connectie
+aangeroepen wordt — overweeg hetzelfde patroon toe te passen als een vergelijkbare fout elders opduikt.
