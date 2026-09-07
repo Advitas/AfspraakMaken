@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import secrets
-from datetime import date, time
+from datetime import date, time, timedelta
 from urllib.parse import urlencode
 
 import azure.functions as func
@@ -988,6 +988,65 @@ def reservering(req: func.HttpRequest) -> func.HttpResponse:
             conn.close()
 
 
+def _is_month_view_requested(payload: dict) -> bool:
+    for key in ("MonthView", "monthView", "monthview", "MONTHVIEW"):
+        if key not in payload:
+            continue
+        value = payload[key]
+        if isinstance(value, bool):
+            return value
+        if str(value).strip().lower() in {"1", "true", "ja", "yes"}:
+            return True
+    return False
+
+
+def _call_buitendienst_month_view(cursor, sp_payload: dict) -> dict:
+    """psAgendaPicker_GetAvailabilityBuitendienst ondersteunt zelf geen MonthView (geeft altijd maar
+    1 dag terug, ongeacht die vlag) — deze functie roept 'm daarom per dag aan voor de hele
+    kalendermaand van het opgegeven 'date' en voegt de resultaten samen tot één result set. Dit
+    gebeurt binnen dezelfde Azure Function-aanroep/DB-connectie (2026-09-07, op verzoek van de
+    gebruiker: efficiënter dan de eerdere aanpak waarbij AgendaPicker zelf per dag een apart HTTP-
+    request deed)."""
+    date_value = sp_payload.get("date")
+    if not date_value:
+        raise ValidationError("Parameter 'date' is verplicht.")
+
+    try:
+        base_date = date.fromisoformat(str(date_value)[:10])
+    except ValueError as ex:
+        raise ValidationError("Parameter 'date' moet formaat YYYY-MM-DD hebben.") from ex
+
+    first_day = base_date.replace(day=1)
+    next_month_first = (
+        first_day.replace(year=first_day.year + 1, month=1)
+        if first_day.month == 12
+        else first_day.replace(month=first_day.month + 1)
+    )
+    last_day = next_month_first - timedelta(days=1)
+
+    combined_rows: list = []
+    matched_parameters: list = []
+    day_cursor = first_day
+    while day_cursor <= last_day:
+        day_payload = dict(sp_payload)
+        day_payload["date"] = day_cursor.isoformat()
+        for month_view_key in ("MonthView", "monthView", "monthview", "MONTHVIEW"):
+            day_payload.pop(month_view_key, None)
+
+        day_result = _call_sp_dynamic(cursor, "dbo", "psAgendaPicker_GetAvailabilityBuitendienst", day_payload)
+        matched_parameters = day_result.get("matched_parameters") or matched_parameters
+        for result_set in day_result.get("result_sets", []):
+            combined_rows.extend(result_set)
+
+        day_cursor += timedelta(days=1)
+
+    return {
+        "output": {},
+        "result_sets": [combined_rows],
+        "matched_parameters": matched_parameters,
+    }
+
+
 def _prepare_availability_call(payload: dict) -> tuple[str, dict]:
     vorm_afspraak = str(payload.get("vorm_afspraak") or "online").strip().lower()
 
@@ -1024,7 +1083,12 @@ def _handle_availability(req: func.HttpRequest) -> func.HttpResponse:
     try:
         conn = _get_connection(payload.get("run"))
         cursor = conn.cursor()
-        sp_result = _call_sp_dynamic(cursor, "dbo", procedure_name, sp_payload)
+
+        if procedure_name == "psAgendaPicker_GetAvailabilityBuitendienst" and _is_month_view_requested(sp_payload):
+            sp_result = _call_buitendienst_month_view(cursor, sp_payload)
+        else:
+            sp_result = _call_sp_dynamic(cursor, "dbo", procedure_name, sp_payload)
+
         conn.commit()
 
         return func.HttpResponse(

@@ -498,3 +498,32 @@ losgelaten.
 **Gevolgen:** vereist een nieuwe deploy van beide stored procedures (en
 `sql/alles_in_1_wijzig_afspraak.sql`). Geen wijziging aan `function_app.py` of AgendaPicker nodig — dit
 is puur een SQL-interne fallback, de output-contractvorm (`postcode` in de response) blijft ongewijzigd.
+
+---
+
+## 2026-09-07 — MonthView voor buitendienst-availability server-side opgelost (i.p.v. client-side)
+
+**Context:** AgendaPicker loste het ontbreken van MonthView-ondersteuning in
+`psAgendaPicker_GetAvailabilityBuitendienst` (zie die repo's ADR-019) op door zelf 31 losse
+browser-requests te doen, één per dag. De gebruiker vroeg: *"kan dat niet efficiënter? met een echte
+stored procedure"*. Voorgelegd aan de gebruiker: (1) een nieuwe/aangepaste T-SQL stored procedure die
+zelf een datumreeks doorloopt, of (2) een server-side loop in Python binnen `_handle_availability`. De
+gebruiker koos expliciet voor optie (2) — de bestaande SQL van `psAgendaPicker_GetAvailabilityBuitendienst`
+zelf is niet in deze repo bekend (staat alleen op de database), dus een T-SQL-wrapper bouwen zou
+gokken naar de exacte parameter-/kolomnamen vergen, met hetzelfde risico op "Invalid parameter/column"-
+fouten die deze sessie al meerdere keren voorkwamen bij vergelijkbare aannames.
+
+**Beslissing:** nieuwe helpers in `function_app.py`: `_is_month_view_requested(payload)` herkent een
+MonthView-vlag (verschillende schrijfwijzen/types) in de request-payload; `_call_buitendienst_month_view
+(cursor, sp_payload)` berekent de kalendermaand (1e t/m laatste dag) van de opgegeven `date`, roept
+`_call_sp_dynamic(..., "psAgendaPicker_GetAvailabilityBuitendienst", ...)` per dag aan binnen dezelfde
+Azure Function-invocatie/DB-connectie, en voegt alle result sets samen tot één vlakke lijst. `_handle_
+availability` gebruikt deze helper i.p.v. de gewone enkele SP-aanroep wanneer `procedure_name ==
+"psAgendaPicker_GetAvailabilityBuitendienst"` én MonthView is aangevraagd — voor alle andere gevallen
+(inclusief online) verandert er niets.
+
+**Gevolgen:** AgendaPicker kon hierdoor terug naar één request per maandwissel voor buitendienst (i.p.v.
+de tijdelijke 31-requests-aanpak) — zie AgendaPicker's `docs/DECISIONS.md`. Geverifieerd door
+`_call_sp_dynamic` te mocken (geen echte DB-connectie nodig): correcte dag-range voor een gewone maand,
+de jaarwissel december→januari, en een schrikkeljaar (29 dagen in februari 2028). Vereist een nieuwe
+`function_app.py`-deploy — geen SQL-wijziging.

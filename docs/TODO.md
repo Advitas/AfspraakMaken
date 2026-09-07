@@ -134,3 +134,13 @@
   afspraak-adres geen postcode oplevert — het gedrag van vóór de "postcode uit adres"-wijziging,
   maar nu als fallback i.p.v. als enige bron. Vereist dezelfde SQL-deploy als de andere nog
   openstaande wijzigingen hierboven.
+- [x] **`/availability` doet MonthView-loop server-side voor buitendienst (2026-09-07, ADR-020):**
+  op verzoek van de gebruiker ("kan dat niet efficiënter? met een echte stored procedure") — geen
+  wijziging aan de bestaande, onbekende SQL van `psAgendaPicker_GetAvailabilityBuitendienst` zelf
+  (risico op gok-fouten, zie eerdere incidenten deze sessie), maar een nieuwe Python-helper
+  `_call_buitendienst_month_view` die de bestaande SP per dag aanroept binnen dezelfde Azure
+  Function-invocatie/DB-connectie en de resultaten samenvoegt. AgendaPicker's kant is teruggedraaid
+  naar één request per maandwissel (was tijdelijk 31 losse browser-requests, zie de vorige fix in
+  AgendaPicker's `docs/DECISIONS.md`). Geverifieerd met gemockte `_call_sp_dynamic` (geen echte
+  DB-connectie nodig): correcte dag-range voor een gewone maand, jaarwissel (december→januari) en
+  schrikkeljaar (29 dagen in februari).

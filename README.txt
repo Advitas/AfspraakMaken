@@ -113,9 +113,16 @@ POST https://<jouw-host>/api/reservering
 
 Availability endpoint (hersteld):
 GET/POST /availability
-- Roept [dbo].[psAgendaPicker_GetAvailability] aan.
+- Roept [dbo].[psAgendaPicker_GetAvailability] aan (of [dbo].[psAgendaPicker_GetAvailabilityBuitendienst]
+  bij vorm_afspraak=buitendienst).
 - Accepteert querystring en/of JSON body.
 - Matcht procedure-parameters dynamisch.
+- MonthView bij buitendienst (2026-09-07): [dbo].[psAgendaPicker_GetAvailabilityBuitendienst]
+  ondersteunt zelf geen MonthView (geeft altijd maar 1 dag terug, ongeacht die vlag). Bij
+  vorm_afspraak=buitendienst + MonthView=true roept _handle_availability de SP nu zelf per dag aan
+  voor de hele kalendermaand van de opgegeven 'date' (_call_buitendienst_month_view) en voegt de
+  resultaten samen tot één result set — AgendaPicker hoeft hier niets van te merken, blijft één
+  request per maandwissel doen zoals bij online.
 
 Volledige handleiding:
 Zie USER_MANUAL.md
