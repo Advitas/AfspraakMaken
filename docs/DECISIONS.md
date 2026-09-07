@@ -263,3 +263,23 @@ naamgevingsconventie, sluit niet aan op een bestaand schema).
 `spWijzigAfspraakDatumTijd`/`spZoekAfspraakVoorWijziging`/`spValideerWijzigPincode` is nu weggenomen. De
 resterende aannames (Klanten-tabelschema, vorm_afspraak-schrijfwijze 'Buitendienst', dbo.users-PK, NULL-
 gezette actions-kolommen) staan nog open, zie `docs/TODO.md`.
+
+## 2026-09-03 — Alle wijzig-afspraak-SQL succesvol uitgevoerd tegen de database
+
+**Context:** de gebruiker heeft `sql/alles_in_1_wijzig_afspraak.sql` uitgevoerd. Een eerste poging gaf
+"Invalid column name 'afspraak_id'"-fouten — bleek een verouderde, niet-ververste kopie van het script te
+zijn (van vóór de `[afspraak-id]`-koppelteken-fix). Na het opnieuw ophalen van de actuele versie is alles
+zonder fouten uitgevoerd.
+
+**Beslissing/Bevinding:** de tabel `dbo.WijzigAfspraakPincodes` en de vier stored procedures
+(`spZoekAfspraakVoorWijziging`, `spBewaarWijzigPincode`, `spValideerWijzigPincode`,
+`spWijzigAfspraakDatumTijd`) staan nu op de database, met de bijbehorende GRANT's voor
+`svc-AppMaakAfspraak`. Dit bevestigt impliciet ook de eerder openstaande kolomnaam-aannames
+(`[dbo].[Klanten].[klant_id]`/`[email]`/`[postcode]`, `dbo.users.[id]`) — `CREATE PROCEDURE` had anders
+dezelfde "Invalid column name"-fout gegeven als bij `afspraak-id`.
+
+**Gevolgen:** de wijzig-afspraak-flow heeft geen openstaande database-blockers meer. Enige resterende
+stap vóór live testen: een lokale `local.settings.json` (AfspraakMaken) en `.env` (AgendaPicker), plus
+deployen van beide apps naar Azure (zie `docs/TODO.md`). De data-/businessaannames (vorm_afspraak =
+'Buitendienst', NULL-gezette actions-kolommen) zijn nog niet functioneel geverifieerd — dat vergt een
+echte end-to-end-test, niet alleen een geslaagde SP-compilatie.

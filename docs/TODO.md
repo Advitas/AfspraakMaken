@@ -7,30 +7,24 @@
 - [ ] Schrijf eerste tests — er is momenteel geen testframework/testbestanden in het project
 - [x] `/availability` roept nu ook `dbo.psAgendaPicker_GetAvailabilityBuitendienst` aan bij `vorm_afspraak=buitendienst` (zie `docs/DECISIONS.md`, 2026-09-01 en 2026-09-01 vervolg). **Opgelost 2026-09-01:** root cause was ontbrekende rechten voor `svc-AppMaakAfspraak` op productie (bevestigd via AgendaPicker end-to-end-test na het zetten van `GRANT EXECUTE`/`GRANT SELECT`). Werkt nu correct in productie.
 - [ ] Reserverings-mail naar planning@advitas.nl (zie `docs/DECISIONS.md`, 2026-09-01, vervangen door Mandrill) vereist dat env-var `MANDRILL_API_KEY` in de Function App's App Settings staat. Nog niet geverifieerd — controleer via een test-reservering en check of de mail daadwerkelijk aankomt (bij een ontbrekende/ongeldige key faalt dit stil; zie Application Insights voor de echte foutmelding).
-- [ ] `spWijzigAfspraakDatumTijd` moet uitgevoerd worden op `SQL_DATABASE_TEST`/productie — het voorstel
-  staat in `sql/spWijzigAfspraakDatumTijd.sql`, gebaseerd op het schema van `[dbo].[Afspraak]` zoals
-  zichtbaar in `[PowerBI].[usp_Reservering_OmzettenNaarAfspraak]`, plus een `[dbo].[actions]`-insert voor
-  het "Afspraakwijziging"-scenario (beide aangeleverd 2026-09-03). **Bevestigd 2026-09-03:** de PK-kolom
-  van `[dbo].[Afspraak]` heet `[afspraak-id]` **met koppelteken** (niet underscore) — zelfde patroon als
-  `[afspraakstate-id]`/`[insteek-id]`/`[prodcat-id]`; `[dbo].[actions]` gebruikt wél `[afspraak_id]` met
-  underscore. Alle SQL-bestanden in `sql/` zijn hierop bijgewerkt. **Nog te verifiëren vóór uitvoering**
-  (zie ook de opsomming bovenaan `sql/spWijzigAfspraakDatumTijd.sql`): (1) `[vorm_afspraak]` =
-  `'Buitendienst'` is een aanname naar analogie met het bevestigde `'Online'`; (2) `dbo.users` heeft een
-  PK-kolom `[id]` (voor de `creator_id`-fallback); (3) een aantal `[actions]`-kolommen (direction,
-  product_id, tag, communication, Oorsprong, Oorsprong_categorie, insteek_id, en field_contents_4 t/m 12)
-  staan op `NULL` omdat daar geen waarde voor is aangeleverd — check of dat businessmatig klopt. Tot
-  uitvoering + verificatie geeft `/wijzig-opslaan` een databasefout ("procedure niet gevonden").
-- [ ] Rechten controleren/zetten voor `svc-AppMaakAfspraak` op de nieuwe SP + onderliggende tabellen
-  (`EXECUTE` op `spWijzigAfspraakDatumTijd`, `SELECT`/`UPDATE` op `Afspraak`, `INSERT` op `actions`,
-  `SELECT` op `users`) — de GRANT-statements staan onderaan `sql/spWijzigAfspraakDatumTijd.sql`. Zelfde
-  soort probleem als de buitendienst-500 uit `docs/DECISIONS.md` (2026-09-01) trad eerder al op zonder
-  deze rechten.
+- [x] **Uitgevoerd 2026-09-03:** alle SQL uit `sql/alles_in_1_wijzig_afspraak.sql` (tabel
+  `WijzigAfspraakPincodes` + 4 stored procedures + GRANT's) staat nu op de database — geen
+  compilatiefouten meer. Dit bevestigt daarmee ook impliciet de kolomnaam-aannames die daarvoor open
+  stonden: `[dbo].[Afspraak].[afspraak-id]`, `[dbo].[Klanten].[klant_id]`/`[email]`/`[postcode]`, en
+  `dbo.users.[id]` bestaan allemaal zoals aangenomen (anders had `CREATE PROCEDURE` een "Invalid column
+  name"-fout gegeven, zoals eerder gebeurde met `afspraak_id` vs `afspraak-id`).
+  **Nog wél open** (dit zijn data-/businessaannames, niet kolomnamen — worden niet door `CREATE PROCEDURE`
+  gecontroleerd): (1) `[vorm_afspraak]` = `'Buitendienst'` (Titel-case) is nog steeds een aanname naar
+  analogie met het bevestigde `'Online'` — pas te verifiëren door een echte buitendienst-wijziging te
+  testen; (2) een aantal `[actions]`-kolommen (direction, product_id, tag, communication, Oorsprong,
+  Oorsprong_categorie, insteek_id, field_contents_4 t/m 12) staan op `NULL` — check of dat businessmatig
+  klopt voor het "Afspraakwijziging"-scenario.
 - [ ] Bevestigen dat `MANDRILL_API_KEY` correct in de Function App's App Settings staat voor de
   wijzig-pincode-mail. `AzureWebJobsStorage` is sinds het herontwerp naar SQL-opslag niet meer relevant
   voor deze feature (blijft uiteraard wel nodig voor de Function App zelf).
 - [ ] `/wijzig-aanvraag`, `/wijzig-verificatie`, `/wijzig-opslaan` zijn nog niet live getest tegen
-  `SQL_DATABASE_TEST` (dit vereist zowel een lokale `local.settings.json`, die niet in deze sessie is
-  aangemaakt, als de 4 nieuwe SP's + tabel hierboven). **Let op:** de curl-voorbeelden in
+  `SQL_DATABASE_TEST` — de SQL-kant staat er nu (zie boven), enige blocker is nu een lokale
+  `local.settings.json`, die niet in deze sessie is aangemaakt. **Let op:** de curl-voorbeelden in
   `docs/superpowers/plans/2026-09-03-wijzig-afspraak-pincode.md` zijn verouderd (die gingen nog uit van
   `afspraak_id` in de body) — gebruik in plaats daarvan:
   ```bash
@@ -59,24 +53,16 @@
   anders krijgen klanten een "Afspraak wijzigen"-knop die nog niet werkt.
 - [ ] `AFSPRAAK_BEVESTIGING_MAIL_ENABLED` toevoegen aan de App Settings (staat al met default `false`
   in `local.settings.json.example`).
-- [ ] **Herontwerp 2026-09-03: e-mail-eerst i.p.v. afspraak_id-in-link.** Op verzoek van de gebruiker start
+- [x] **Herontwerp 2026-09-03: e-mail-eerst i.p.v. afspraak_id-in-link.** Op verzoek van de gebruiker start
   de wijzig-flow nu met een e-mailadres (niet meer met `afspraak_id` uit een link) — de klant typt zijn
-  e-mailadres in, het systeem zoekt zelf de bijbehorende afspraak op. Dit vereist 3 NIEUWE stored
-  procedures (bovenop de al openstaande `spWijzigAfspraakDatumTijd`), plus een nieuwe SQL-tabel die de
-  eerdere Azure Table Storage-opslag vervangt:
-  - `sql/WijzigAfspraakPincodes_tabel.sql` — nieuwe tabel (vervangt Table Storage volledig)
-  - `sql/spZoekAfspraakVoorWijziging.sql` — e-mail → eerstvolgende toekomstige 'Open'-afspraak
-  - `sql/spBewaarWijzigPincode.sql` — pincode opslaan
-  - `sql/spValideerWijzigPincode.sql` — pincode valideren + afspraak-info teruggeven
-  - `sql/WijzigAfspraakPincodes_rechten.sql` — GRANT-statements voor `svc-AppMaakAfspraak`
-  Alle vier moeten (in volgorde: tabel → 3 SP's → rechten) uitgevoerd worden op `SQL_DATABASE_TEST`/
-  productie. **Belangrijke aanname, nog te verifiëren:** de Klanten-tabel heet `[dbo].[Klanten]` met
-  kolommen `[klant_id]`/`[email]` — AgendaPicker's eigen code (`server.js`, `getKlantenTableInfo`)
-  detecteert dit juist dynamisch omdat kolomnamen kunnen variëren (bijv. `e-mailadres`); deze nieuwe SP's
-  gaan uit van vaste namen. Zie de aannames bovenaan `sql/spZoekAfspraakVoorWijziging.sql`.
+  e-mailadres in, het systeem zoekt zelf de bijbehorende afspraak op. De 3 nieuwe stored procedures +
+  nieuwe SQL-tabel (`WijzigAfspraakPincodes_tabel.sql`, `spZoekAfspraakVoorWijziging.sql`,
+  `spBewaarWijzigPincode.sql`, `spValideerWijzigPincode.sql`, `WijzigAfspraakPincodes_rechten.sql`) staan
+  nu uitgevoerd op de database (zie hierboven) — inclusief de aanname over `[dbo].[Klanten]`'s kolommen,
+  die daarmee impliciet bevestigd is.
 - [x] `function_app.py` is bijgewerkt: de Azure Table Storage-helpers en de `azure-data-tables`-dependency
   zijn vervangen door `_call_sp_zoek_afspraak_voor_wijziging`/`_call_sp_bewaar_wijzig_pincode`/
   `_call_sp_valideer_wijzig_pincode`. `/wijzig-aanvraag` en `/wijzig-verificatie`/`/wijzig-opslaan`
   accepteren nu `email` i.p.v. `afspraak_id` als belangrijkste input (`afspraak_id` wordt server-side uit
-  de gevalideerde pincode gehaald, nooit meer van de client vertrouwd). **Nog niet live getest** — wacht op
-  uitvoering van de 4 nieuwe SP's + tabel (zie hierboven).
+  de gevalideerde pincode gehaald, nooit meer van de client vertrouwd). **Nog niet live getest** — de
+  SQL-kant staat er nu, enige blocker is een lokale `local.settings.json` (zie curl-item hierboven).
