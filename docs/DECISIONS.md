@@ -677,3 +677,31 @@ aanroep zijn onderling afhankelijk; de SP alleen deployen zonder de code (of and
 `/wijzig_opslaan`. Geverifieerd met een los testscript (geen echte DB/mail-verzending nodig): de
 mail-body toont correct "van 5 naar 8" bij een adviseurswissel en "Nee (blijft 5)" als de adviseur
 gelijk blijft; de ontvanger-resolutie (test→rvader, prod→planning) gedraagt zich zoals verwacht.
+
+---
+
+## 2026-09-07 — Echte oorzaak van de "doomed transaction"-fout: `direction` staat NOT NULL
+
+**Context:** de vorige transactiefix (THROW bij `XACT_STATE() = -1`) was expliciet bedoeld om de tot
+dan toe verborgen onderliggende fout zichtbaar te maken — en dat werkte: de eerstvolgende poging gaf
+`Cannot insert the value NULL into column 'direction', table 'Advitas_Test.dbo.actions'; column does
+not allow nulls.` Dit bevestigt precies de niet-geverifieerde aanname uit `spWijzigAfspraakDatumTijd`'s
+eigen header-comment (assumptie 4): een aantal `[actions]`-kolommen werden op `NULL` gezet zonder te
+weten of dat businessmatig/schema-matig klopte. `direction` bleek een `NOT NULL`-constraint te hebben.
+Gevraagd aan de gebruiker welke waarde hoort; antwoord: `'inbound'`.
+
+**Beslissing:** `[direction]` in de `actions`-INSERT (zowel `sql/spWijzigAfspraakDatumTijd.sql` als
+`sql/alles_in_1_wijzig_afspraak.sql`) is aangepast van `NULL` naar `N'inbound'`. Positie in de
+VALUES-lijst geverifieerd door de 32 kolommen en 32 waarden 1-op-1 te matchen (positie 15,
+`[direction]` staat tussen `[field_contents_5]` en `[field_contents_6]`). De overige NULL-gezette
+`actions`-kolommen (`product_id`, `tag`, `communication`, `Oorsprong`, `Oorsprong_categorie`,
+`field_contents_4`/`5`/`6`-`12`, `insteek_id`) zijn NIET aangepast — alleen `direction` gaf een
+constraint-fout, dus die andere aannames blijven voorlopig ongewijzigd en nog steeds onbevestigd.
+
+**Gevolgen:** vereist dezelfde gecombineerde SQL-deploy als de vorige twee transactie-gerelateerde
+fixes van vandaag (`sql/spWijzigAfspraakDatumTijd.sql`, met de OUTPUT-parameters voor de
+samenvattingsmail én deze `direction`-fix, samen met `function_app.py`). Dit is het derde
+probleem-op-probleem-laagje dat vandaag werd blootgelegd: transactiecount-mismatch (266) → doomed
+transaction (3998) → nu pas de échte data-fout (`direction NOT NULL`, 515). Overweeg bij een volgende
+soortgelijke wijziging aan `dbo.actions`-inserts eerst te controleren welke kolommen `NOT NULL` zijn
+(`sp_help '[dbo].[actions]'`), i.p.v. dit stapsgewijs via productiefouten te ontdekken.

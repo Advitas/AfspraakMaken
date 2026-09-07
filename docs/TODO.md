@@ -193,3 +193,15 @@
   een nieuwe deploy van `sql/spWijzigAfspraakDatumTijd.sql` (en `sql/alles_in_1_wijzig_afspraak.sql`)
   én `function_app.py` samen — de SP en de Python-aanroep zijn nu onderling afhankelijk (nieuwe
   OUTPUT-parameters).
+- [x] **Echte oorzaak van de "doomed transaction"-fout gevonden en gefixt: `direction` mag geen NULL
+  zijn (2026-09-07):** met de transactiefix zichtbaar geworden foutmelding:
+  `Cannot insert the value NULL into column 'direction', table 'Advitas_Test.dbo.actions'; column
+  does not allow nulls.` Dit was precies de nog-niet-bevestigde aanname uit assumptie 4/5 hierboven
+  (een aantal `[actions]`-kolommen op NULL gezet, waaronder `direction`). Gebruiker bevestigde:
+  `direction` = `'inbound'` voor deze "Afspraakwijziging"-actie. `sql/spWijzigAfspraakDatumTijd.sql`
+  (en `sql/alles_in_1_wijzig_afspraak.sql`) zetten `[direction]` nu op `N'inbound'` i.p.v. `NULL` in
+  de `actions`-INSERT (positie 15 van 32, geverifieerd door de kolom- en waardelijst 1-op-1 te
+  matchen). Overige NULL-gezette `actions`-kolommen (product_id, tag, communication, Oorsprong,
+  Oorsprong_categorie, field_contents_4/5/6-12, insteek_id) zijn NIET aangepast — alleen `direction`
+  bleek een NOT NULL-constraint te hebben, de rest gaf geen fout dus is voorlopig ongewijzigd
+  gelaten. Vereist dezelfde gecombineerde SQL-deploy als het punt hierboven.

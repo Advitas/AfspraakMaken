@@ -498,7 +498,7 @@ BEGIN
       SYSUTCDATETIME(),
       NULL,
       NULL,
-      NULL,
+      N'inbound',
       NULL,
       NULL,
       NULL,
