@@ -48,11 +48,13 @@
     -H "Content-Type: application/json" \
     -d '{"email": "klant@voorbeeld.nl", "pincode": "123456", "adviseur_id": 42, "datum": "2026-09-10", "tijd": "14:30", "duur_kwartieren": 2, "vorm_afspraak": "online", "run": "test"}'
   ```
-- [x] **UITGEZET (2026-09-07):** de tijdelijke mail-omleiding naar `rvader@advitas.nl` (aangevraagd
-  2026-09-03 voor testdoeleinden) staat weer uit — `WIJZIG_MAIL_OVERRIDE_TO_DEFAULT` in
-  `function_app.py` is teruggezet naar `""`. Pincode-mail en afspraak-bevestigingsmail gaan dus weer
-  naar het echte klant-e-mailadres. Het mechanisme zelf (env var `WIJZIG_MAIL_OVERRIDE_TO`) blijft
-  bestaan voor eventueel toekomstig testen, zonder code-wijziging nodig.
+- [x] **Mail-omleiding nu run-afhankelijk (2026-09-07):** eerst volledig uitgezet, daarna genuanceerd
+  op verzoek van de gebruiker ("als run = test dan moet rvader geactiveerd"): `_resolve_wijzig_mail_
+  override_to(run_value)` stuurt bij `run=test` automatisch naar `rvader@advitas.nl`, bij `run=prod`
+  naar het echte klant-e-mailadres — zonder dat de env var `WIJZIG_MAIL_OVERRIDE_TO` gezet hoeft te
+  worden. Die env var blijft wel bestaan en wint altijd als 'ie expliciet gezet is (ook als lege
+  string), voor het geval dit gedrag handmatig overruled moet worden. Geldt voor zowel de pincode-mail
+  als de afspraak-bevestigingsmail.
 - [ ] **Nieuw, UIT by default:** `/afspraak` kan nu optioneel een bevestigingsmail met "Afspraak
   wijzigen"-knop naar de klant sturen (`_try_send_afspraak_bevestiging_email`), maar alleen als
   `AFSPRAAK_BEVESTIGING_MAIL_ENABLED=true` staat — standaard `false`, juist omdat `/afspraak` een

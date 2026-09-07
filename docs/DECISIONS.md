@@ -549,3 +549,26 @@ weer daadwerkelijk de pincode-/bevestigingsmail op hun eigen adres — dus pas d
 de wijzig-afspraak-flow (agenda-afleiding, postcode-uit-adres, doorgepland, geen pincode-check bij
 opslaan, MonthView-fix) ook klaar is om mee te gaan, anders krijgen klanten mails voor een half-werkende
 flow.
+
+---
+
+## 2026-09-07 — Mail-omleiding run-afhankelijk: aan bij test, uit bij prod
+
+**Context:** direct na de vorige wijziging (omleiding volledig uitgezet) vroeg de gebruiker een
+nuancering: *"als run = test dan moet rvader geactiveerd"* — de omleiding moet dus niet volledig weg
+zijn, maar automatisch afhangen van `run`: bij `run=test` naar `rvader@advitas.nl`, bij `run=prod` naar
+het echte klant-e-mailadres. Zonder deze nuance had elke test-aanvraag (`run=test`) een echte mail naar
+een willekeurig klant-e-mailadres gestuurd zodra de omleiding uit stond.
+
+**Beslissing:** de vaste `WIJZIG_MAIL_OVERRIDE_TO_DEFAULT`-constante is vervangen door een functie
+`_resolve_wijzig_mail_override_to(run_value)`: als de env var `WIJZIG_MAIL_OVERRIDE_TO` expliciet gezet
+is (ook als lege string), wint die altijd — ongeacht `run` (backwards compatible met het bestaande
+mechanisme om dit handmatig te overrulen). Is de env var niet gezet, dan bepaalt `run_value` het
+gedrag: `test` → `rvader@advitas.nl` (nieuwe constante `WIJZIG_MAIL_OVERRIDE_TO_TEST_DEFAULT`), `prod`
+→ leeg (geen omleiding). Beide mailfuncties (`_send_wijzig_email`, `_send_afspraak_bevestiging_email`)
+ontvingen `run_value` al als parameter, dus geen wijziging nodig aan de aanroepers.
+
+**Gevolgen:** geverifieerd met een los testscript (geen echte DB/mail-verzending nodig): zonder env var
+gaat `run=test` naar `rvader@advitas.nl` en `run=prod` naar leeg (dus het echte klantadres); met een
+expliciete env var (ook een lege string) wint die altijd, in beide richtingen. Test-aanvragen blijven
+dus veilig naar het testadres gaan, ook nu de eerdere "altijd omleiden"-instelling is losgelaten.

@@ -191,6 +191,7 @@ Nieuwe environment variable:
 - AFSPRAAK_BEVESTIGING_MAIL_ENABLED (optioneel, default "false" — zet op "true" om de
   bevestigingsmail daadwerkelijk te versturen)
 
-De mail respecteert (tijdelijk, zie docs/DECISIONS.md 2026-09-03) dezelfde WIJZIG_MAIL_OVERRIDE_TO als
-de pincode-mail — zolang die actief is, gaat ook déze mail naar het override-adres in plaats van naar
-het echte klant-e-mailadres.
+De mail gebruikt dezelfde run-afhankelijke test-omleiding als de pincode-mail (zie
+docs/DECISIONS.md 2026-09-07): bij run=test gaat 'ie naar rvader@advitas.nl, bij run=prod naar het
+echte klant-e-mailadres — tenzij de env var WIJZIG_MAIL_OVERRIDE_TO expliciet gezet is, die wint dan
+altijd.

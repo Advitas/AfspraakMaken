@@ -495,7 +495,7 @@ def _send_afspraak_bevestiging_email(data: dict, sp_output: dict, run_value) -> 
     if not email:
         return
 
-    override_to = os.getenv("WIJZIG_MAIL_OVERRIDE_TO", WIJZIG_MAIL_OVERRIDE_TO_DEFAULT).strip()
+    override_to = _resolve_wijzig_mail_override_to(run_value)
     verzend_naar = override_to or email
 
     subject, html_body = _build_afspraak_bevestiging_email(data, sp_output, run_value)
@@ -1315,11 +1315,20 @@ def _call_sp_valideer_wijzig_pincode(cursor, email: str, pincode: str) -> dict:
     return {}
 
 
-# Testmail-omleiding voor de pincode-/bevestigingsmail (aangevraagd 2026-09-03, uitgezet 2026-09-07,
-# zie docs/DECISIONS.md). Default staat weer leeg: mails gaan dus weer naar het echte
-# klant-e-mailadres. Kan nog steeds tijdelijk aangezet worden voor testen via de env var
-# WIJZIG_MAIL_OVERRIDE_TO, zonder een code-wijziging.
-WIJZIG_MAIL_OVERRIDE_TO_DEFAULT = ""
+# Testmail-omleiding voor de pincode-/bevestigingsmail (aangevraagd 2026-09-03, run-afhankelijk
+# gemaakt 2026-09-07, zie docs/DECISIONS.md). Zonder expliciete env var WIJZIG_MAIL_OVERRIDE_TO gaat
+# de mail bij run=test naar dit testadres, en bij run=prod naar het echte klant-e-mailadres (geen
+# omleiding). Zet WIJZIG_MAIL_OVERRIDE_TO expliciet (ook als lege string) om dit gedrag te overrulen,
+# in beide richtingen.
+WIJZIG_MAIL_OVERRIDE_TO_TEST_DEFAULT = "rvader@advitas.nl"
+
+
+def _resolve_wijzig_mail_override_to(run_value) -> str:
+    env_override = os.getenv("WIJZIG_MAIL_OVERRIDE_TO")
+    if env_override is not None:
+        return env_override.strip()
+    is_prod = str(run_value).strip().lower() == "prod"
+    return "" if is_prod else WIJZIG_MAIL_OVERRIDE_TO_TEST_DEFAULT
 
 
 def _build_wijzig_email(
@@ -1367,7 +1376,7 @@ def _build_wijzig_email(
 
 
 def _send_wijzig_email(email: str, pincode: str, run_value) -> None:
-    override_to = os.getenv("WIJZIG_MAIL_OVERRIDE_TO", WIJZIG_MAIL_OVERRIDE_TO_DEFAULT).strip()
+    override_to = _resolve_wijzig_mail_override_to(run_value)
     verzend_naar = override_to or email
     oorspronkelijk_email = email if (override_to and override_to.lower() != email.lower()) else None
 
