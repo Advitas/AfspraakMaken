@@ -124,7 +124,8 @@ Zie USER_MANUAL.md
 
 Nieuwe endpoints: afspraak wijzigen via pincode (e-mail-eerst)
 
-POST /api/wijzig-aanvraag (of /wijzig-aanvraag als routePrefix leeg staat)
+POST /api/wijzig_aanvraag (of /wijzig_aanvraag als routePrefix leeg staat)
+(underscore, niet koppelteken — bewust gelijkgetrokken met de Python-functienaam, zie docs/DECISIONS.md)
 Body: { email, run }
 Gedrag: zoekt via [dbo].[spZoekAfspraakVoorWijziging] de eerstvolgende toekomstige afspraak met status
 'Open' voor dit e-mailadres. Geen afspraak gevonden: HTTP 404, geen mail verstuurd (voorkomt dat je via
@@ -133,13 +134,13 @@ deze route kunt achterhalen welke e-mailadressen wel/niet klant zijn). Wel gevon
 slaat die op via [dbo].[spBewaarWijzigPincode], en mailt de pincode + een link naar de
 AgendaPicker-wijzigpagina (met `email` voorgevuld) naar dat e-mailadres.
 
-POST /api/wijzig-verificatie
+POST /api/wijzig_verificatie
 Body: { email, pincode, run }
 Gedrag: controleert de pincode via [dbo].[spValideerWijzigPincode]. Bij succes: retourneert afspraak_id,
 adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, postcode van de gekoppelde afspraak (voor de
 kalender + informatieweergave in AgendaPicker).
 
-POST /api/wijzig-opslaan
+POST /api/wijzig_opslaan
 Body: { email, pincode, adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, run }
 Gedrag: valideert de pincode opnieuw (afspraak_id komt server-side uit die validatie, nooit van de
 client), roept [dbo].[spWijzigAfspraakDatumTijd] aan. Die procedure ruimt de pincode zelf op bij succes

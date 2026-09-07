@@ -283,3 +283,25 @@ stap vóór live testen: een lokale `local.settings.json` (AfspraakMaken) en `.e
 deployen van beide apps naar Azure (zie `docs/TODO.md`). De data-/businessaannames (vorm_afspraak =
 'Buitendienst', NULL-gezette actions-kolommen) zijn nog niet functioneel geverifieerd — dat vergt een
 echte end-to-end-test, niet alleen een geslaagde SP-compilatie.
+
+## 2026-09-03 — Route-namen hernoemd naar underscore, gelijk aan de Python-functienamen
+
+**Context:** tijdens het testen bleek Azure Portal's Functions-lijst de drie nieuwe functies te tonen
+als `wijzig_aanvraag`/`wijzig_opslaan`/`wijzig_verificatie` (underscore — dat is simpelweg de
+Python-functienaam, Python staat geen koppeltekens toe in identifiers). De HTTP-route zelf werd echter
+apart bepaald via `@app.route(route="wijzig-aanvraag", ...)` (koppelteken). Dit verschil tussen de naam
+in Portal en de echte URL zorgde herhaaldelijk voor verwarring bij het configureren van
+`AFSPRAAK_WIJZIG_*_URL` in AgendaPicker — een env var werd meermaals op de verkeerde variant gezet,
+telkens resulterend in een lege-body-404 (route-laag kent de URL niet).
+
+**Beslissing:** de `route=`-parameter van alle drie de routes is aangepast naar underscore
+(`wijzig_aanvraag`, `wijzig_verificatie`, `wijzig_opslaan`), zodat de URL nu exact overeenkomt met wat
+Azure Portal al toonde. Dit is een bewuste afwijking van de bestaande routenaam-conventie in dit project
+(`afspraak`, `reservering`, `availability`, `wijzig-aanvraag` gebruikten tot nu toe geen underscores) —
+maar de verwarring die het koppelteken-verschil veroorzaakte woog zwaarder dan naamgevingsconsistentie
+met de oudere routes.
+
+**Gevolgen:** dit is een breaking change voor de URL-contracten — vereist een nieuwe deploy van
+AfspraakMaken, én het aanpassen van `AFSPRAAK_WIJZIG_AANVRAAG_URL`/`AFSPRAAK_WIJZIG_VERIFICATIE_URL`/
+`AFSPRAAK_WIJZIG_OPSLAAN_URL` in AgendaPicker's App Settings naar de underscore-paden (bijv.
+`.../api/wijzig_aanvraag`). Zie `docs/TODO.md` voor de bijgewerkte curl-voorbeelden.

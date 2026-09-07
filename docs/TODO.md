@@ -22,21 +22,29 @@
 - [ ] Bevestigen dat `MANDRILL_API_KEY` correct in de Function App's App Settings staat voor de
   wijzig-pincode-mail. `AzureWebJobsStorage` is sinds het herontwerp naar SQL-opslag niet meer relevant
   voor deze feature (blijft uiteraard wel nodig voor de Function App zelf).
-- [ ] `/wijzig-aanvraag`, `/wijzig-verificatie`, `/wijzig-opslaan` zijn nog niet live getest tegen
+- [x] **Routes hernoemd naar underscore (2026-09-03):** `/wijzig-aanvraag`/`/wijzig-verificatie`/
+  `/wijzig-opslaan` (koppelteken) zijn hernoemd naar `/wijzig_aanvraag`/`/wijzig_verificatie`/
+  `/wijzig_opslaan` (underscore) — bewust gelijkgetrokken met de Python-functienamen, die Azure Portal's
+  Functions-lijst toont (Python staat geen koppeltekens toe in functienamen, dus die kolom toonde altijd
+  al underscore, terwijl de URL voorheen apart op koppelteken stond via `route=`). Dit voorkwam
+  herhaaldelijke verwarring bij het aflezen van de juiste URL uit Azure Portal. **Vereist een nieuwe
+  AfspraakMaken-deploy**, en de env vars `AFSPRAAK_WIJZIG_AANVRAAG_URL`/`AFSPRAAK_WIJZIG_VERIFICATIE_URL`/
+  `AFSPRAAK_WIJZIG_OPSLAAN_URL` in AgendaPicker's App Settings moeten naar de underscore-paden wijzen.
+- [ ] `/wijzig_aanvraag`, `/wijzig_verificatie`, `/wijzig_opslaan` zijn nog niet live getest tegen
   `SQL_DATABASE_TEST` — de SQL-kant staat er nu (zie boven), enige blocker is nu een lokale
   `local.settings.json`, die niet in deze sessie is aangemaakt. **Let op:** de curl-voorbeelden in
-  `docs/superpowers/plans/2026-09-03-wijzig-afspraak-pincode.md` zijn verouderd (die gingen nog uit van
-  `afspraak_id` in de body) — gebruik in plaats daarvan:
+  `docs/superpowers/plans/2026-09-03-wijzig-afspraak-pincode.md` zijn verouderd (afspraak_id-gebaseerd
+  én koppelteken-routes) — gebruik in plaats daarvan:
   ```bash
-  curl -X POST http://localhost:7071/api/wijzig-aanvraag \
+  curl -X POST http://localhost:7071/api/wijzig_aanvraag \
     -H "Content-Type: application/json" \
     -d '{"email": "klant@voorbeeld.nl", "run": "test"}'
 
-  curl -X POST http://localhost:7071/api/wijzig-verificatie \
+  curl -X POST http://localhost:7071/api/wijzig_verificatie \
     -H "Content-Type: application/json" \
     -d '{"email": "klant@voorbeeld.nl", "pincode": "123456", "run": "test"}'
 
-  curl -X POST http://localhost:7071/api/wijzig-opslaan \
+  curl -X POST http://localhost:7071/api/wijzig_opslaan \
     -H "Content-Type: application/json" \
     -d '{"email": "klant@voorbeeld.nl", "pincode": "123456", "adviseur_id": 42, "datum": "2026-09-10", "tijd": "14:30", "duur_kwartieren": 2, "vorm_afspraak": "online", "run": "test"}'
   ```

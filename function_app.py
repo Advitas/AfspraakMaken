@@ -1366,7 +1366,7 @@ def _parse_wijzig_aanvraag_payload(payload: dict) -> dict:
     }
 
 
-@app.route(route="wijzig-aanvraag", methods=["POST"])
+@app.route(route="wijzig_aanvraag", methods=["POST"])
 def wijzig_aanvraag(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Wijzig-aanvraag API aangeroepen")
 
@@ -1452,7 +1452,7 @@ def wijzig_aanvraag(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 
-@app.route(route="wijzig-verificatie", methods=["POST"])
+@app.route(route="wijzig_verificatie", methods=["POST"])
 def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Wijzig-verificatie API aangeroepen")
 
@@ -1604,7 +1604,7 @@ def _parse_wijzig_opslaan_payload(payload: dict) -> dict:
     }
 
 
-@app.route(route="wijzig-opslaan", methods=["POST"])
+@app.route(route="wijzig_opslaan", methods=["POST"])
 def wijzig_opslaan(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Wijzig-opslaan API aangeroepen")
 
