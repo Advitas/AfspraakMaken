@@ -205,3 +205,21 @@
   Oorsprong_categorie, field_contents_4/5/6-12, insteek_id) zijn NIET aangepast — alleen `direction`
   bleek een NOT NULL-constraint te hebben, de rest gaf geen fout dus is voorlopig ongewijzigd
   gelaten. Vereist dezelfde gecombineerde SQL-deploy als het punt hierboven.
+- [x] **Wijzigings-samenvattingsmail uitgebreid: klantnaam/klant_id/adviseursnamen/zelfservice-
+  vermelding (2026-09-07):** de gebruiker vroeg om deze extra informatie in de mail naar
+  planning@advitas.nl. Zie de eerdere ADR van 2026-09-01 waarin adviseursnaam bewust werd uitgesteld
+  tot het schema van `dbo.Adviseurs` bekend was — dat moment is nu. Gebruiker bevestigde:
+  `dbo.Klanten` heeft `[voorletters]`/`[tussenvoegsel]`/`[naam]` (klantnaam wordt hieruit opgebouwd
+  met `CONCAT_WS`), en `dbo.Adviseurs` heeft naam-kolom `[Adviseur]` en ID-kolom `[adviseur_ID]`.
+  `spWijzigAfspraakDatumTijd` kreeg vier nieuwe OUTPUT-parameters
+  (`@klant_id`/`@klant_naam`/`@oud_adviseur_naam`/`@nieuw_adviseur_naam`) — puur informatief, geen
+  foutafhandeling als er geen match is (blijft dan NULL, mailfunctie valt dan terug op het kale
+  `adviseur_id`). Ook een duidelijke banner toegevoegd in de mail-body: "Deze wijziging is door de
+  klant zelf doorgevoerd via de 'Afspraak wijzigen'-pagina (zelfservice, niet handmatig door een
+  planner)" — geldt altijd voor `/wijzig_opslaan`, want dat endpoint is uitsluitend bereikbaar via de
+  klant-facing pincode-flow. Nieuwe `GRANT SELECT ON [dbo].[Adviseurs]` toegevoegd (was nog niet
+  aanwezig, eerste keer dat deze flow die tabel raadpleegt) aan zowel het gecombineerde bestand als
+  `sql/WijzigAfspraakPincodes_rechten.sql`. Geverifieerd met een los testscript (geen echte
+  DB/mail-verzending): adviseurswissel toont namen i.p.v. kale ID's, klantnaam+klant_id staan in de
+  body, zelfservice-banner is aanwezig, en de fallback naar `adviseur_id` werkt correct als er geen
+  naam bekend is. Vereist dezelfde gecombineerde SQL+code-deploy als de andere punten van vandaag.

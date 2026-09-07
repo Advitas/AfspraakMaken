@@ -1607,7 +1607,10 @@ def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
 def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
     cursor.execute(
         """
-        DECLARE @oud_adviseur_id INT, @oud_datum DATE, @oud_tijd TIME, @foutmelding NVARCHAR(500);
+        DECLARE @oud_adviseur_id INT, @oud_datum DATE, @oud_tijd TIME,
+                @klant_id INT, @klant_naam NVARCHAR(255),
+                @oud_adviseur_naam NVARCHAR(255), @nieuw_adviseur_naam NVARCHAR(255),
+                @foutmelding NVARCHAR(500);
 
         EXEC [dbo].[spWijzigAfspraakDatumTijd]
             @afspraak_id = ?,
@@ -1619,9 +1622,15 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
             @oud_adviseur_id = @oud_adviseur_id OUTPUT,
             @oud_datum = @oud_datum OUTPUT,
             @oud_tijd = @oud_tijd OUTPUT,
+            @klant_id = @klant_id OUTPUT,
+            @klant_naam = @klant_naam OUTPUT,
+            @oud_adviseur_naam = @oud_adviseur_naam OUTPUT,
+            @nieuw_adviseur_naam = @nieuw_adviseur_naam OUTPUT,
             @foutmelding = @foutmelding OUTPUT;
 
         SELECT @oud_adviseur_id AS oud_adviseur_id, @oud_datum AS oud_datum, @oud_tijd AS oud_tijd,
+               @klant_id AS klant_id, @klant_naam AS klant_naam,
+               @oud_adviseur_naam AS oud_adviseur_naam, @nieuw_adviseur_naam AS nieuw_adviseur_naam,
                @foutmelding AS foutmelding;
         """,
         data["afspraak_id"],
@@ -1654,11 +1663,18 @@ def _build_wijziging_samenvatting_email(
     adviseur_gewijzigd = str(oud.get("adviseur_id")) != str(nieuw.get("adviseur_id"))
     van_label = f"{oud.get('datum')} om {oud.get('tijd')}"
     naar_label = f"{nieuw.get('datum')} om {nieuw.get('tijd')}"
+
+    oud_adviseur_weergave = oud.get("adviseur_naam") or oud.get("adviseur_id")
+    nieuw_adviseur_weergave = nieuw.get("adviseur_naam") or nieuw.get("adviseur_id")
     adviseur_label = (
-        f"Ja (van {oud.get('adviseur_id')} naar {nieuw.get('adviseur_id')})"
+        f"Ja (van {oud_adviseur_weergave} naar {nieuw_adviseur_weergave})"
         if adviseur_gewijzigd
-        else f"Nee (blijft {nieuw.get('adviseur_id')})"
+        else f"Nee (blijft {nieuw_adviseur_weergave})"
     )
+
+    klant_naam = nieuw.get("klant_naam")
+    klant_id = nieuw.get("klant_id")
+    klant_label = f"{klant_naam} ({klant_id})" if klant_naam and klant_id else (klant_naam or klant_id)
 
     def _rij(label, waarde) -> str:
         weergave = html.escape(str(waarde)) if waarde not in (None, "") else "&mdash;"
@@ -1674,6 +1690,7 @@ def _build_wijziging_samenvatting_email(
         _rij(label, waarde)
         for label, waarde in [
             ("Afspraak_id", afspraak_id),
+            ("Klant", klant_label),
             ("Van", van_label),
             ("Naar", naar_label),
             ("Adviseur gewijzigd", adviseur_label),
@@ -1690,10 +1707,19 @@ def _build_wijziging_samenvatting_email(
         )
     )
 
+    # Duidelijk maken dat dit een zelfservice-wijziging is (aangevraagd 2026-09-07): elke aanroep van
+    # /wijzig_opslaan komt per definitie uit de klant-facing pincode-flow, nooit van een planner.
+    zelfservice_banner = (
+        '<p style="background:#e8f4ea;color:#1e5e2b;padding:8px 12px;border-radius:4px;'
+        'font-size:13px;font-weight:bold;">Deze wijziging is door de klant zelf doorgevoerd via de '
+        '"Afspraak wijzigen"-pagina (zelfservice, niet handmatig door een planner).</p>'
+    )
+
     html_body = (
         '<div style="font-family:Segoe UI, Arial, sans-serif;color:#222;max-width:600px;">'
         '<h2 style="color:#1a3c6e;">Afspraak gewijzigd</h2>'
         f"{test_banner}"
+        f"{zelfservice_banner}"
         f'<table style="border-collapse:collapse;width:100%;">{rijen}</table>'
         '<p style="color:#888;font-size:12px;margin-top:16px;">'
         "Automatisch gegenereerd door AfspraakMaken bij het wijzigen van een afspraak."
@@ -1845,14 +1871,18 @@ def wijzig_opslaan(req: func.HttpRequest) -> func.HttpResponse:
 
         oud = {
             "adviseur_id": sp_result["output"].get("oud_adviseur_id"),
+            "adviseur_naam": sp_result["output"].get("oud_adviseur_naam"),
             "datum": sp_result["output"].get("oud_datum"),
             "tijd": sp_result["output"].get("oud_tijd"),
         }
         nieuw = {
             "adviseur_id": data["adviseur_id"],
+            "adviseur_naam": sp_result["output"].get("nieuw_adviseur_naam"),
             "datum": data["datum"],
             "tijd": data["tijd"],
             "vorm_afspraak": data["vorm_afspraak"],
+            "klant_id": sp_result["output"].get("klant_id"),
+            "klant_naam": sp_result["output"].get("klant_naam"),
         }
         _try_send_wijziging_samenvatting_email(data["afspraak_id"], oud, nieuw, data["run"])
 

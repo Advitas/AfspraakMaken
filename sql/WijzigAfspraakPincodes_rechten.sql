@@ -16,6 +16,7 @@ GRANT SELECT ON [dbo].[Klanten] TO [svc-AppMaakAfspraak];
 GRANT SELECT, UPDATE ON [dbo].[Afspraak] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[Status afspraak] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[Adres] TO [svc-AppMaakAfspraak];
+GRANT SELECT ON [dbo].[Adviseurs] TO [svc-AppMaakAfspraak];
 GRANT INSERT ON [dbo].[actions] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[users] TO [svc-AppMaakAfspraak];
 GRANT DELETE ON [dbo].[WijzigAfspraakPincodes] TO [svc-AppMaakAfspraak];

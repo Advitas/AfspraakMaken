@@ -370,6 +370,10 @@ CREATE OR ALTER PROCEDURE [dbo].[spWijzigAfspraakDatumTijd]
   @oud_adviseur_id  int OUTPUT,
   @oud_datum        date OUTPUT,
   @oud_tijd         time OUTPUT,
+  @klant_id             int OUTPUT,
+  @klant_naam           nvarchar(255) OUTPUT,
+  @oud_adviseur_naam    nvarchar(255) OUTPUT,
+  @nieuw_adviseur_naam  nvarchar(255) OUTPUT,
   @foutmelding      nvarchar(500) OUTPUT
 AS
 BEGIN
@@ -417,7 +421,8 @@ BEGIN
         @saleOpportunityId = [saleop_id],
         @oud_adviseur_id = [adviseur_id],
         @oud_datum = CAST([datum_adviesgesprek] AS date),
-        @oud_tijd = CAST([tijd_adviesgesprek] AS time)
+        @oud_tijd = CAST([tijd_adviesgesprek] AS time),
+        @klant_id = [klant_id]
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @afspraak_id;
 
@@ -428,6 +433,22 @@ BEGIN
       SET @foutmelding = N'Afspraak niet gevonden.';
       RETURN;
     END;
+
+    -- Klant- en adviseursnaam voor de wijzigings-samenvattingsmail (aangevraagd 2026-09-07). Puur
+    -- informatief, dus geen foutafhandeling nodig als er geen match is — blijft dan NULL.
+    IF @klant_id IS NOT NULL
+    BEGIN
+      SELECT TOP 1 @klant_naam = NULLIF(LTRIM(RTRIM(CONCAT_WS(N' ',
+          NULLIF(LTRIM(RTRIM([voorletters])), N''),
+          NULLIF(LTRIM(RTRIM([tussenvoegsel])), N''),
+          NULLIF(LTRIM(RTRIM([naam])), N'')
+        ))), N'')
+      FROM [dbo].[Klanten]
+      WHERE [klant_id] = @klant_id;
+    END
+
+    SELECT TOP 1 @oud_adviseur_naam = [Adviseur] FROM [dbo].[Adviseurs] WHERE [adviseur_ID] = @oud_adviseur_id;
+    SELECT TOP 1 @nieuw_adviseur_naam = [Adviseur] FROM [dbo].[Adviseurs] WHERE [adviseur_ID] = @adviseur_id;
 
     UPDATE [dbo].[Afspraak]
     SET
@@ -559,6 +580,7 @@ GRANT SELECT ON [dbo].[Klanten] TO [svc-AppMaakAfspraak];
 GRANT SELECT, UPDATE ON [dbo].[Afspraak] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[Status afspraak] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[Adres] TO [svc-AppMaakAfspraak];
+GRANT SELECT ON [dbo].[Adviseurs] TO [svc-AppMaakAfspraak];
 GRANT INSERT ON [dbo].[actions] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[users] TO [svc-AppMaakAfspraak];
 GRANT DELETE ON [dbo].[WijzigAfspraakPincodes] TO [svc-AppMaakAfspraak];

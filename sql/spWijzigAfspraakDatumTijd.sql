@@ -22,6 +22,13 @@ Aannames die geverifieerd moeten worden vóór uitvoering (zie comments hieronde
    afspraak-gegevens van vóór de UPDATE terug — gebruikt door function_app.py om een "van ... naar
    ..."-samenvattingsmail naar planning@advitas.nl te bouwen (bij "afspraak niet gevonden" blijven
    deze NULL, zoals @foutmelding al aangeeft).
+6) Nieuw (2026-09-07): @klant_id/@klant_naam/@oud_adviseur_naam/@nieuw_adviseur_naam OUTPUT-
+   parameters, voor dezelfde samenvattingsmail. @klant_naam wordt opgebouwd uit
+   [dbo].[Klanten].[voorletters]/[tussenvoegsel]/[naam] (aangeleverd door de gebruiker 2026-09-07).
+   Adviseursnamen komen uit [dbo].[Adviseurs].[Adviseur] (naam-kolom), gematcht op
+   [dbo].[Adviseurs].[adviseur_ID] (ID-kolom) — beide kolomnamen ook aangeleverd door de gebruiker.
+   Zie de eerdere ADR van 2026-09-01 waarin dit bewust werd uitgesteld tot deze kolomnamen bekend
+   waren.
 ******/
 SET ANSI_NULLS ON
 GO
@@ -38,6 +45,10 @@ CREATE OR ALTER PROCEDURE [dbo].[spWijzigAfspraakDatumTijd]
   @oud_adviseur_id  int OUTPUT,
   @oud_datum        date OUTPUT,
   @oud_tijd         time OUTPUT,
+  @klant_id             int OUTPUT,
+  @klant_naam           nvarchar(255) OUTPUT,
+  @oud_adviseur_naam    nvarchar(255) OUTPUT,
+  @nieuw_adviseur_naam  nvarchar(255) OUTPUT,
   @foutmelding      nvarchar(500) OUTPUT
 AS
 BEGIN
@@ -85,7 +96,8 @@ BEGIN
         @saleOpportunityId = [saleop_id],
         @oud_adviseur_id = [adviseur_id],
         @oud_datum = CAST([datum_adviesgesprek] AS date),
-        @oud_tijd = CAST([tijd_adviesgesprek] AS time)
+        @oud_tijd = CAST([tijd_adviesgesprek] AS time),
+        @klant_id = [klant_id]
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @afspraak_id;
 
@@ -96,6 +108,22 @@ BEGIN
       SET @foutmelding = N'Afspraak niet gevonden.';
       RETURN;
     END;
+
+    -- Klant- en adviseursnaam voor de wijzigings-samenvattingsmail (aangevraagd 2026-09-07). Puur
+    -- informatief, dus geen foutafhandeling nodig als er geen match is — blijft dan NULL.
+    IF @klant_id IS NOT NULL
+    BEGIN
+      SELECT TOP 1 @klant_naam = NULLIF(LTRIM(RTRIM(CONCAT_WS(N' ',
+          NULLIF(LTRIM(RTRIM([voorletters])), N''),
+          NULLIF(LTRIM(RTRIM([tussenvoegsel])), N''),
+          NULLIF(LTRIM(RTRIM([naam])), N'')
+        ))), N'')
+      FROM [dbo].[Klanten]
+      WHERE [klant_id] = @klant_id;
+    END
+
+    SELECT TOP 1 @oud_adviseur_naam = [Adviseur] FROM [dbo].[Adviseurs] WHERE [adviseur_ID] = @oud_adviseur_id;
+    SELECT TOP 1 @nieuw_adviseur_naam = [Adviseur] FROM [dbo].[Adviseurs] WHERE [adviseur_ID] = @adviseur_id;
 
     UPDATE [dbo].[Afspraak]
     SET

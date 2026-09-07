@@ -172,10 +172,14 @@ identiteitscontrole bij het opslaan zelf. Zie docs/DECISIONS.md voor de volledig
 
 Na een geslaagde wijziging stuurt dit endpoint (2026-09-07, best-effort — een mailfout blokkeert het
 opslaan zelf niet) een samenvattingsmail naar planning@advitas.nl (bij run=test naar rvader@advitas.nl,
-zelfde run-afhankelijke omleiding als de andere mails) met "van [oude datum/tijd] naar [nieuwe
-datum/tijd]" en of de adviseur is gewijzigd. De oude afspraak-gegevens komen uit
-[dbo].[spWijzigAfspraakDatumTijd]'s nieuwe @oud_adviseur_id/@oud_datum/@oud_tijd OUTPUT-parameters
-(vastgelegd vóór de UPDATE).
+zelfde run-afhankelijke omleiding als de andere mails) met klantnaam + klant_id, "van [oude
+datum/tijd] naar [nieuwe datum/tijd]", of de adviseur is gewijzigd (met naam, niet alleen ID), en een
+duidelijke vermelding dat de klant dit zelf via de zelfservice-pagina heeft doorgevoerd (niet een
+planner). De oude afspraak-gegevens + klant-/adviseursnamen komen uit
+[dbo].[spWijzigAfspraakDatumTijd]'s OUTPUT-parameters (@oud_adviseur_id/@oud_datum/@oud_tijd/
+@klant_id/@klant_naam/@oud_adviseur_naam/@nieuw_adviseur_naam) — klantnaam wordt opgebouwd uit
+[dbo].[Klanten].[voorletters]/[tussenvoegsel]/[naam], adviseursnamen uit [dbo].[Adviseurs].[Adviseur]
+(gematcht op [dbo].[Adviseurs].[adviseur_ID]).
 
 Nieuwe environment variable:
 - AGENDAPICKER_BASE_URL (optioneel, default

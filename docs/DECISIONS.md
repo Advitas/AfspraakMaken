@@ -705,3 +705,49 @@ probleem-op-probleem-laagje dat vandaag werd blootgelegd: transactiecount-mismat
 transaction (3998) → nu pas de échte data-fout (`direction NOT NULL`, 515). Overweeg bij een volgende
 soortgelijke wijziging aan `dbo.actions`-inserts eerst te controleren welke kolommen `NOT NULL` zijn
 (`sp_help '[dbo].[actions]'`), i.p.v. dit stapsgewijs via productiefouten te ontdekken.
+
+---
+
+## 2026-09-07 — Wijzigings-samenvattingsmail uitgebreid: klantnaam, klant_id, adviseursnamen, zelfservice-vermelding
+
+**Context:** direct na het opleveren van de samenvattingsmail vroeg de gebruiker om uitbreiding:
+*"ik wil de naam van de klant, klant_id naam van de adviseur(s) en het moet duidelijk zijn dat de
+klant deze heeft gewijzgd"*. Voor de adviseursnaam bestond al een expliciete eerdere beslissing (ADR
+van 2026-09-01, over de reservering-mail): adviseursnaam was toen bewust weggelaten met de notitie
+"opnieuw voorleggen vóór implementatie" zodra het schema van `dbo.Adviseurs` bekend was. Dat is nu
+gebeurd. Voor de klantnaam gaf AgendaPicker's eigen dynamische kolom-detectie (`server.js`,
+`getKlantenTableInfo`/`pickColumnName`) een sterke aanwijzing (`'naam'` als eerste kandidaat voor
+achternaam), maar de gebruiker corrigeerde/bevestigde expliciet: `dbo.Klanten` heeft drie losse
+kolommen — `[voorletters]`, `[tussenvoegsel]`, `[naam]`. Voor `dbo.Adviseurs` was er geen enkele
+aanwijzing in de bestaande codebase; na wat verwarring in de dialoog (de tabelnaam "Adviseur"
+enkelvoud vs. "Adviseurs" meervoud werd eerst door elkaar gehaald) bevestigde de gebruiker: tabel
+`dbo.Adviseurs`, naam-kolom `[Adviseur]`, ID-kolom `[adviseur_ID]`.
+
+**Beslissing:** `spWijzigAfspraakDatumTijd` kreeg vier nieuwe OUTPUT-parameters: `@klant_id` (al
+grotendeels beschikbaar via de bestaande fresh-SELECT op `[dbo].[Afspraak]`, nu ook uitgevoerd),
+`@klant_naam` (opgebouwd uit `[dbo].[Klanten].[voorletters]`/`[tussenvoegsel]`/`[naam]` via
+`CONCAT_WS(N' ', ...)`, met `NULLIF(LTRIM(RTRIM(...)), N'')` per veld om lege/whitespace-only waarden
+netjes over te slaan zodat er geen dubbele spaties ontstaan), `@oud_adviseur_naam` en
+`@nieuw_adviseur_naam` (beide een losse `SELECT TOP 1 ... FROM [dbo].[Adviseurs] WHERE [adviseur_ID]
+= ...`, want de oude en nieuwe adviseur kunnen verschillen). Puur informatief: geen foutafhandeling
+als er geen match is, de OUTPUT-parameters blijven dan gewoon `NULL`. `_build_wijziging_samenvatting_
+email` in `function_app.py` valt bij een ontbrekende adviseursnaam terug op het kale `adviseur_id`
+(`oud.get("adviseur_naam") or oud.get("adviseur_id")`), en toont de klant als `"{naam} ({klant_id})"`
+als beide bekend zijn. Een nieuwe, duidelijk zichtbare banner in de mail-body meldt expliciet dat de
+wijziging door de klant zelf is doorgevoerd via de zelfservice-pagina — dit geldt onvoorwaardelijk
+voor elke aanroep van `/wijzig_opslaan`, aangezien dat endpoint uitsluitend bereikbaar is via de
+klant-facing pincode-flow (nooit door een planner, die heeft een ander/geen bestaand pad).
+
+Een nieuwe `GRANT SELECT ON [dbo].[Adviseurs]` is toegevoegd — deze flow raadpleegde die tabel nog
+niet eerder, dezelfde categorie fout als de eerder ontbrekende `GRANT SELECT ON [dbo].[Adres]`.
+
+**Gevolgen:** vereist dezelfde gecombineerde SQL+code-deploy als de andere wijzigingen van vandaag
+(`sql/spWijzigAfspraakDatumTijd.sql`/`sql/alles_in_1_wijzig_afspraak.sql`/
+`sql/WijzigAfspraakPincodes_rechten.sql` samen met `function_app.py`). Geverifieerd met een los
+testscript (geen echte DB/mail-verzending): een adviseurswissel toont de namen ("Edwin Krijns naar
+Petra de Vries") i.p.v. kale ID's, klantnaam+klant_id staan correct in de body, de
+zelfservice-banner is aanwezig, en zonder bekende namen (`NULL` uit de SP) valt alles netjes terug op
+het kale `adviseur_id`. **Niet geverifieerd:** de exacte schema-namen zijn dit keer rechtstreeks door
+de gebruiker aangeleverd (niet uit codebase-bewijs afgeleid zoals bij eerdere kolommen), dus het
+gebruikelijke "Invalid column name"-risico bij de eerstvolgende SQL-deploy is hier kleiner, maar niet
+nul.
