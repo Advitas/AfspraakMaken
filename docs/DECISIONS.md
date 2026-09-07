@@ -453,3 +453,25 @@ worden in SSMS, ongeacht of (delen van) het bestand al eerder gedraaid zijn — 
 selectie van "welk stuk nog moet" meer nodig. Geverifieerd: de procedure-bodies in de losse bestanden
 en het gecombineerde bestand zijn met `diff` gecontroleerd en zijn byte-identiek; BEGIN/END-statements
 in het gecombineerde bestand zijn in balans (21/21).
+
+---
+
+## 2026-09-07 — `doorgepland`-vlag (pre_aid) toegevoegd voor het adviseur-filter in AgendaPicker
+
+**Context:** de gebruiker wil in AgendaPicker's kalenderstap een keuze aanbieden om het adviseur-filter
+uit te zetten en zo meer mogelijke tijden te zien: *"ik wil graag een check box of button waarbij ik
+meer mogelijke slots kan laten zien. Dan niet meer filteren op adviseur."* Maar met een belangrijke
+uitzondering: *"Als een afspraak een pre_aid kolom gevuld heeft dan is het doorgeplanned en moet er
+altijd worden gefilterd op adviseur. dan geen keus aanbieden"* — sommige afspraken zijn specifiek aan
+één adviseur "doorgepland" en mogen dan nooit voor een andere adviseur ingepland worden.
+
+**Beslissing:** `spValideerWijzigPincode` krijgt een nieuwe `@doorgepland BIT OUTPUT`-parameter,
+afgeleid uit `[dbo].[Afspraak].[pre_aid] IS NOT NULL` (vers herquery't, zelfde plek als
+insteek_id/prodcat_id/adres_sleutel). `/wijzig_verificatie` geeft dit nu mee als `doorgepland` in de
+JSON-respons. AgendaPicker gebruikt dit om de "toon meer tijden"-toggle te tonen of juist te verbergen
+(zie AgendaPicker's `docs/DECISIONS.md`).
+
+**Gevolgen:** vereist een nieuwe deploy van `spValideerWijzigPincode.sql` (en
+`alles_in_1_wijzig_afspraak.sql`) en `function_app.py`. **Niet geverifieerd:** kolomnaam `pre_aid` komt
+alleen uit tekst van de gebruiker, niet gecontroleerd tegen het echte schema — zelfde risico als de
+eerdere schema-aannames in deze flow.

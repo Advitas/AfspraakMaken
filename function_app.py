@@ -1220,8 +1220,8 @@ def _call_sp_valideer_wijzig_pincode(cursor, email: str, pincode: str) -> dict:
     cursor.execute(
         """
         DECLARE @afspraak_id INT, @adviseur_id INT, @datum DATE, @tijd TIME, @duur_kwartieren INT,
-                @vorm_afspraak NVARCHAR(20), @postcode NVARCHAR(10), @agenda NVARCHAR(20), @geldig BIT,
-                @foutmelding NVARCHAR(200);
+                @vorm_afspraak NVARCHAR(20), @postcode NVARCHAR(10), @agenda NVARCHAR(20),
+                @doorgepland BIT, @geldig BIT, @foutmelding NVARCHAR(200);
 
         EXEC [dbo].[spValideerWijzigPincode]
             @email = ?,
@@ -1234,12 +1234,13 @@ def _call_sp_valideer_wijzig_pincode(cursor, email: str, pincode: str) -> dict:
             @vorm_afspraak = @vorm_afspraak OUTPUT,
             @postcode = @postcode OUTPUT,
             @agenda = @agenda OUTPUT,
+            @doorgepland = @doorgepland OUTPUT,
             @geldig = @geldig OUTPUT,
             @foutmelding = @foutmelding OUTPUT;
 
         SELECT @afspraak_id AS afspraak_id, @adviseur_id AS adviseur_id, @datum AS datum, @tijd AS tijd,
                @duur_kwartieren AS duur_kwartieren, @vorm_afspraak AS vorm_afspraak, @postcode AS postcode,
-               @agenda AS agenda, @geldig AS geldig, @foutmelding AS foutmelding;
+               @agenda AS agenda, @doorgepland AS doorgepland, @geldig AS geldig, @foutmelding AS foutmelding;
         """,
         email,
         pincode,
@@ -1521,6 +1522,7 @@ def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
                 "vorm_afspraak": resultaat.get("vorm_afspraak"),
                 "postcode": resultaat.get("postcode"),
                 "agenda": resultaat.get("agenda"),
+                "doorgepland": bool(resultaat.get("doorgepland")),
             },
             default=str,
         ),

@@ -46,6 +46,10 @@
       [Adres-id]/[PKD] zijn NIET geverifieerd tegen het echte schema, alleen aangeleverd als tekst
       door de gebruiker — controleer dit vóór uitvoering (zelfde risico als eerdere aannames hierboven:
       een verkeerde kolomnaam geeft een "Invalid column name"-fout).
+   8) @doorgepland (nieuw, 2026-09-07) komt uit [dbo].[Afspraak].[pre_aid] (underscore) — gevuld =
+      "doorgepland", AgendaPicker moet dan altijd op de oorspronkelijke adviseur filteren en geen
+      "toon meer tijden"-keuze aanbieden. Kolomnaam [pre_aid] NIET geverifieerd tegen het echte
+      schema, alleen aangeleverd als tekst door de gebruiker.
 
  Controleer vóór het GRANT-blok eerst wat svc-AppMaakAfspraak al heeft, om overbodige grants te
  vermijden:
@@ -239,6 +243,7 @@ CREATE OR ALTER PROCEDURE [dbo].[spValideerWijzigPincode]
     @vorm_afspraak    NVARCHAR(20) OUTPUT,
     @postcode         NVARCHAR(10) OUTPUT,
     @agenda           NVARCHAR(20) OUTPUT,
+    @doorgepland      BIT OUTPUT,
     @geldig           BIT OUTPUT,
     @foutmelding      NVARCHAR(200) OUTPUT
 AS
@@ -282,7 +287,7 @@ BEGIN
         RETURN;
     END
 
-    DECLARE @insteek_id INT, @prodcat_id INT, @adres_sleutel INT;
+    DECLARE @insteek_id INT, @prodcat_id INT, @adres_sleutel INT, @pre_aid INT;
 
     SELECT
         @afspraak_id = [afspraak-id],
@@ -293,7 +298,8 @@ BEGIN
         @vorm_afspraak = [vorm_afspraak],
         @insteek_id = [insteek-id],
         @prodcat_id = [prodcat-id],
-        @adres_sleutel = [adres_sleutel]
+        @adres_sleutel = [adres_sleutel],
+        @pre_aid = [pre_aid]
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @gekoppeld_afspraak_id;
 
@@ -317,6 +323,8 @@ BEGIN
         WHEN @insteek_id = 35 AND @prodcat_id = 22 THEN N'schade'
         ELSE NULL
     END;
+
+    SET @doorgepland = CASE WHEN @pre_aid IS NOT NULL THEN 1 ELSE 0 END;
 
     SET @geldig = 1;
     SET @foutmelding = NULL;

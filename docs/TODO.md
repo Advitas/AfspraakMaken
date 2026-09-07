@@ -120,3 +120,10 @@
   `GRANT SELECT ON [dbo].[Adres]` toegevoegd (nodig sinds de postcode-uit-adres-wijziging hierboven,
   was er nog niet) aan zowel het gecombineerde bestand als `sql/WijzigAfspraakPincodes_rechten.sql`
   (dat laatste was sowieso stale t.o.v. het gecombineerde bestand — nu gelijkgetrokken).
+- [x] **`doorgepland`-vlag toegevoegd aan `/wijzig_verificatie` (2026-09-07):** AgendaPicker krijgt een
+  nieuwe "toon meer mogelijke tijden"-optie waarmee de klant het adviseur-filter kan uitzetten (zie
+  AgendaPicker's `docs/DECISIONS.md`). Dat mag echter NIET als de afspraak "doorgepland" is —
+  `spValideerWijzigPincode` retourneert nu `@doorgepland` (BIT), afgeleid uit
+  `[dbo].[Afspraak].[pre_aid] IS NOT NULL`. **NIET geverifieerd:** kolomnaam `pre_aid` komt alleen uit
+  tekst van de gebruiker. Vereist dezelfde SQL/code-deploy als de andere nog openstaande wijzigingen
+  hierboven.
