@@ -1607,7 +1607,7 @@ def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
 def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
     cursor.execute(
         """
-        DECLARE @foutmelding NVARCHAR(500);
+        DECLARE @oud_adviseur_id INT, @oud_datum DATE, @oud_tijd TIME, @foutmelding NVARCHAR(500);
 
         EXEC [dbo].[spWijzigAfspraakDatumTijd]
             @afspraak_id = ?,
@@ -1616,9 +1616,13 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
             @tijd = ?,
             @duur_kwartieren = ?,
             @vorm_afspraak = ?,
+            @oud_adviseur_id = @oud_adviseur_id OUTPUT,
+            @oud_datum = @oud_datum OUTPUT,
+            @oud_tijd = @oud_tijd OUTPUT,
             @foutmelding = @foutmelding OUTPUT;
 
-        SELECT @foutmelding AS foutmelding;
+        SELECT @oud_adviseur_id AS oud_adviseur_id, @oud_datum AS oud_datum, @oud_tijd AS oud_tijd,
+               @foutmelding AS foutmelding;
         """,
         data["afspraak_id"],
         data["adviseur_id"],
@@ -1635,6 +1639,114 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
         result_sets = result_sets[:-1]
 
     return {"output": output, "result_sets": result_sets}
+
+
+def _build_wijziging_samenvatting_email(
+    afspraak_id, oud: dict, nieuw: dict, run_value
+) -> tuple[str, str]:
+    """Bouwt de "van ... naar ..."-samenvattingsmail voor planning@advitas.nl, aangevraagd 2026-09-07.
+    Mirrort _build_reservering_email's opzet (tabelrijen, testbanner)."""
+    is_prod = str(run_value).strip().lower() == "prod"
+
+    subject_prefix = "" if is_prod else "[TEST] "
+    subject = f"{subject_prefix}Afspraak #{afspraak_id} gewijzigd"
+
+    adviseur_gewijzigd = str(oud.get("adviseur_id")) != str(nieuw.get("adviseur_id"))
+    van_label = f"{oud.get('datum')} om {oud.get('tijd')}"
+    naar_label = f"{nieuw.get('datum')} om {nieuw.get('tijd')}"
+    adviseur_label = (
+        f"Ja (van {oud.get('adviseur_id')} naar {nieuw.get('adviseur_id')})"
+        if adviseur_gewijzigd
+        else f"Nee (blijft {nieuw.get('adviseur_id')})"
+    )
+
+    def _rij(label, waarde) -> str:
+        weergave = html.escape(str(waarde)) if waarde not in (None, "") else "&mdash;"
+        return (
+            "<tr>"
+            f'<td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;font-weight:bold;'
+            f'white-space:nowrap;">{html.escape(str(label))}</td>'
+            f'<td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;">{weergave}</td>'
+            "</tr>"
+        )
+
+    rijen = "".join(
+        _rij(label, waarde)
+        for label, waarde in [
+            ("Afspraak_id", afspraak_id),
+            ("Van", van_label),
+            ("Naar", naar_label),
+            ("Adviseur gewijzigd", adviseur_label),
+            ("Vorm afspraak", nieuw.get("vorm_afspraak")),
+        ]
+    )
+
+    test_banner = (
+        ""
+        if is_prod
+        else (
+            '<p style="color:#b00020;font-weight:bold;">Dit is een TESTwijziging '
+            "(niet tegen productie) — geen actie ondernemen.</p>"
+        )
+    )
+
+    html_body = (
+        '<div style="font-family:Segoe UI, Arial, sans-serif;color:#222;max-width:600px;">'
+        '<h2 style="color:#1a3c6e;">Afspraak gewijzigd</h2>'
+        f"{test_banner}"
+        f'<table style="border-collapse:collapse;width:100%;">{rijen}</table>'
+        '<p style="color:#888;font-size:12px;margin-top:16px;">'
+        "Automatisch gegenereerd door AfspraakMaken bij het wijzigen van een afspraak."
+        "</p>"
+        "</div>"
+    )
+
+    return subject, html_body
+
+
+def _send_wijziging_samenvatting_email(afspraak_id, oud: dict, nieuw: dict, run_value) -> None:
+    override_to = _resolve_wijzig_mail_override_to(run_value)
+    verzend_naar = override_to or "planning@advitas.nl"
+
+    subject, html_body = _build_wijziging_samenvatting_email(afspraak_id, oud, nieuw, run_value)
+    api_key = _require_any_env("MANDRILL_API_KEY")
+
+    response = requests.post(
+        "https://mandrillapp.com/api/1.0/messages/send.json",
+        json={
+            "key": api_key,
+            "message": {
+                "html": html_body,
+                "subject": subject,
+                "from_email": "planning@advitas.nl",
+                "from_name": "Advitas",
+                "to": [{"email": verzend_naar, "type": "to"}],
+            },
+        },
+        timeout=15,
+    )
+    if response.status_code >= 300:
+        raise RuntimeError(f"Mandrill sendMail-fout ({response.status_code}): {response.text[:500]}")
+
+    try:
+        result = response.json()
+    except ValueError:
+        result = None
+
+    if isinstance(result, dict) and result.get("status") == "error":
+        raise RuntimeError(f"Mandrill wees de aanvraag af: {result}")
+
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        eerste_status = result[0].get("status")
+        if eerste_status in {"rejected", "invalid"}:
+            raise RuntimeError(f"Mandrill wees de mail af: {result[0]}")
+
+
+def _try_send_wijziging_samenvatting_email(afspraak_id, oud: dict, nieuw: dict, run_value) -> None:
+    try:
+        _send_wijziging_samenvatting_email(afspraak_id, oud, nieuw, run_value)
+    except Exception:
+        logging.exception("Fout bij versturen van wijzigings-samenvattingsmail naar planning@advitas.nl")
 
 
 def _parse_wijzig_opslaan_payload(payload: dict) -> dict:
@@ -1730,6 +1842,19 @@ def wijzig_opslaan(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         conn.commit()
+
+        oud = {
+            "adviseur_id": sp_result["output"].get("oud_adviseur_id"),
+            "datum": sp_result["output"].get("oud_datum"),
+            "tijd": sp_result["output"].get("oud_tijd"),
+        }
+        nieuw = {
+            "adviseur_id": data["adviseur_id"],
+            "datum": data["datum"],
+            "tijd": data["tijd"],
+            "vorm_afspraak": data["vorm_afspraak"],
+        }
+        _try_send_wijziging_samenvatting_email(data["afspraak_id"], oud, nieuw, data["run"])
 
         return func.HttpResponse(
             json.dumps({"result": "success", "stored_procedure_output": sp_result["output"]}, default=str),

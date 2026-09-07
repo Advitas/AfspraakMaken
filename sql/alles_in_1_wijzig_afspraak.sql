@@ -367,6 +367,9 @@ CREATE OR ALTER PROCEDURE [dbo].[spWijzigAfspraakDatumTijd]
   @tijd             time,
   @duur_kwartieren  int,
   @vorm_afspraak    nvarchar(20),
+  @oud_adviseur_id  int OUTPUT,
+  @oud_datum        date OUTPUT,
+  @oud_tijd         time OUTPUT,
   @foutmelding      nvarchar(500) OUTPUT
 AS
 BEGIN
@@ -404,10 +407,17 @@ BEGIN
 
   BEGIN TRY
     -- sale_oppertunity_id van de bestaande afspraak ophalen (nodig voor de actions-insert
-    -- hieronder) en tegelijk bevestigen dat de afspraak bestaat.
+    -- hieronder) en tegelijk bevestigen dat de afspraak bestaat. Tegelijk de OUDE adviseur/datum/tijd
+    -- vastleggen (vóór de UPDATE hieronder) — nodig voor de wijzigings-samenvatting-mail naar
+    -- planning@advitas.nl (aangevraagd 2026-09-07), die niet meer los kan worden opgehaald sinds
+    -- /wijzig_opslaan geen pincode-hervalidatie meer doet.
     DECLARE @saleOpportunityId nvarchar(255);
 
-    SELECT @saleOpportunityId = [saleop_id]
+    SELECT
+        @saleOpportunityId = [saleop_id],
+        @oud_adviseur_id = [adviseur_id],
+        @oud_datum = CAST([datum_adviesgesprek] AS date),
+        @oud_tijd = CAST([tijd_adviesgesprek] AS time)
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @afspraak_id;
 

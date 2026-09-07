@@ -170,6 +170,13 @@ de pincode een "verlopen pincode"-fout gaf als een klant lang in de AgendaPicker
 kiezen was. Gevolg: wie een afspraak_id kent (of raadt/opsomt) kan die wijzigen zonder verdere
 identiteitscontrole bij het opslaan zelf. Zie docs/DECISIONS.md voor de volledige afweging.
 
+Na een geslaagde wijziging stuurt dit endpoint (2026-09-07, best-effort — een mailfout blokkeert het
+opslaan zelf niet) een samenvattingsmail naar planning@advitas.nl (bij run=test naar rvader@advitas.nl,
+zelfde run-afhankelijke omleiding als de andere mails) met "van [oude datum/tijd] naar [nieuwe
+datum/tijd]" en of de adviseur is gewijzigd. De oude afspraak-gegevens komen uit
+[dbo].[spWijzigAfspraakDatumTijd]'s nieuwe @oud_adviseur_id/@oud_datum/@oud_tijd OUTPUT-parameters
+(vastgelegd vóór de UPDATE).
+
 Nieuwe environment variable:
 - AGENDAPICKER_BASE_URL (optioneel, default
   https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net — basis-URL voor de "Afspraak

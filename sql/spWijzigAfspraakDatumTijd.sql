@@ -18,6 +18,10 @@ Aannames die geverifieerd moeten worden vóór uitvoering (zie comments hieronde
    (direction, product_id, tag, communication, Oorsprong, Oorsprong_categorie,
    field_contents_4 t/m field_contents_12 behalve field_contents_1-3, insteek_id) zijn op NULL
    gezet — vul aan als het businessproces daar specifieke waarden voor verwacht.
+5) Nieuw (2026-09-07): @oud_adviseur_id/@oud_datum/@oud_tijd OUTPUT-parameters geven de
+   afspraak-gegevens van vóór de UPDATE terug — gebruikt door function_app.py om een "van ... naar
+   ..."-samenvattingsmail naar planning@advitas.nl te bouwen (bij "afspraak niet gevonden" blijven
+   deze NULL, zoals @foutmelding al aangeeft).
 ******/
 SET ANSI_NULLS ON
 GO
@@ -31,6 +35,9 @@ CREATE OR ALTER PROCEDURE [dbo].[spWijzigAfspraakDatumTijd]
   @tijd             time,
   @duur_kwartieren  int,
   @vorm_afspraak    nvarchar(20),
+  @oud_adviseur_id  int OUTPUT,
+  @oud_datum        date OUTPUT,
+  @oud_tijd         time OUTPUT,
   @foutmelding      nvarchar(500) OUTPUT
 AS
 BEGIN
@@ -68,10 +75,17 @@ BEGIN
 
   BEGIN TRY
     -- sale_oppertunity_id van de bestaande afspraak ophalen (nodig voor de actions-insert
-    -- hieronder) en tegelijk bevestigen dat de afspraak bestaat.
+    -- hieronder) en tegelijk bevestigen dat de afspraak bestaat. Tegelijk de OUDE adviseur/datum/tijd
+    -- vastleggen (vóór de UPDATE hieronder) — nodig voor de wijzigings-samenvatting-mail naar
+    -- planning@advitas.nl (aangevraagd 2026-09-07), die niet meer los kan worden opgehaald sinds
+    -- /wijzig_opslaan geen pincode-hervalidatie meer doet (zie eerdere ADR).
     DECLARE @saleOpportunityId nvarchar(255);
 
-    SELECT @saleOpportunityId = [saleop_id]
+    SELECT
+        @saleOpportunityId = [saleop_id],
+        @oud_adviseur_id = [adviseur_id],
+        @oud_datum = CAST([datum_adviesgesprek] AS date),
+        @oud_tijd = CAST([tijd_adviesgesprek] AS time)
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @afspraak_id;
 

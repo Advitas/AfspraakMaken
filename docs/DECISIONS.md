@@ -640,3 +640,40 @@ plaats liet triggeren — die was tot nu toe onzichtbaar door dit bug-op-bug-eff
 verborg de eigenlijke SQL-fout, die op zijn beurt weer een tweede transactiefout veroorzaakte). Na deze
 deploy zou de eerstvolgende poging tot opslaan de daadwerkelijke onderliggende SQL-foutmelding moeten
 tonen in het technische statuspaneel, wat nodig is om de werkelijke oorzaak te vinden en op te lossen.
+
+---
+
+## 2026-09-07 — Wijzigings-samenvattingsmail naar planning@advitas.nl
+
+**Context:** de gebruiker vroeg om een e-mail naar `planning@advitas.nl` na elke wijziging via
+`/wijzig_opslaan`, met een samenvatting: *"stuur ook een mailtje naar planning@advitas.nl waarin een
+samenvatting van de wijziging. Dus van naar en of de advsieur ook is gewijzigd. (ook dat mailtje naar
+rvader bij testing)"*. Er bestaat al een vrijwel identiek patroon voor reserveringen
+(`_build_reservering_email`/`_send_reservering_email`/`_try_send_reservering_email`, ook naar
+`planning@advitas.nl`), en de run-afhankelijke testmail-omleiding (`_resolve_wijzig_mail_override_to`,
+zie eerdere ADR van dezelfde dag) bestond ook al — dit is dus een sterk voorbedacht, goed afgebakend
+stukje werk, direct geïmplementeerd zonder aparte brainstorm/planfase (mirrort drie bestaande functies
+vrijwel één-op-één).
+
+**Beslissing:** nieuwe functies `_build_wijziging_samenvatting_email`/`_send_wijziging_samenvatting_email`/
+`_try_send_wijziging_samenvatting_email`, opgeroepen vanuit `/wijzig_opslaan` ná een geslaagde
+`conn.commit()`. De mail toont afspraak_id, "van [oude datum] om [oude tijd]" → "naar [nieuwe datum] om
+[nieuwe tijd]", en of de adviseur gewijzigd is ("Ja (van X naar Y)" / "Nee (blijft X)"). De ontvanger
+volgt dezelfde `_resolve_wijzig_mail_override_to(run_value)`-logica als de andere mails:
+`planning@advitas.nl` bij `run=prod`, `rvader@advitas.nl` bij `run=test` (tenzij de env var
+`WIJZIG_MAIL_OVERRIDE_TO` expliciet iets anders zegt). Best-effort net als de andere `_try_send_*`-
+functies: een mailfout wordt gelogd maar blokkeert het opslaan zelf niet.
+
+De "oude" afspraak-gegevens (nodig voor de "van"-kant) waren nergens meer beschikbaar sinds
+`/wijzig_opslaan` geen pincode-hervalidatie meer doet (die haalde voorheen de actuele afspraak-data
+op). Om dit zonder een extra databaseronde op te lossen, kreeg `spWijzigAfspraakDatumTijd` drie nieuwe
+OUTPUT-parameters (`@oud_adviseur_id`/`@oud_datum`/`@oud_tijd`) die de bestaande SELECT (die toch al
+`saleop_id` ophaalt vóór de UPDATE) meteen ook meegeeft — geen extra query nodig.
+
+**Gevolgen:** vereist een nieuwe, **samenhangende** deploy van zowel `sql/spWijzigAfspraakDatumTijd.sql`
+(en `sql/alles_in_1_wijzig_afspraak.sql`, met `diff` gecontroleerd op inhoudelijke gelijkheid) als
+`function_app.py` — de nieuwe OUTPUT-parameters in de SP en de aangepaste `_call_sp_wijzig_afspraak`-
+aanroep zijn onderling afhankelijk; de SP alleen deployen zonder de code (of andersom) breekt
+`/wijzig_opslaan`. Geverifieerd met een los testscript (geen echte DB/mail-verzending nodig): de
+mail-body toont correct "van 5 naar 8" bij een adviseurswissel en "Nee (blijft 5)" als de adviseur
+gelijk blijft; de ontvanger-resolutie (test→rvader, prod→planning) gedraagt zich zoals verwacht.

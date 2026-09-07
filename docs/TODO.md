@@ -179,3 +179,17 @@
   échte fout die de CATCH triggert — die was tot nu toe onzichtbaar door dit bug-op-bug-effect. Na
   deze deploy zou de eerstvolgende poging de daadwerkelijke SQL-foutmelding moeten tonen, wat helpt om
   de eigenlijke oorzaak te vinden.
+- [x] **Wijzigings-samenvattingsmail naar planning@advitas.nl (2026-09-07):** op verzoek van de
+  gebruiker stuurt `/wijzig_opslaan` na een geslaagde wijziging nu een samenvattingsmail
+  (`_try_send_wijziging_samenvatting_email`, mirrort `_build_reservering_email`'s opzet) met "van ...
+  naar ..." en of de adviseur is gewijzigd. Bij `run=test` gaat die naar `rvader@advitas.nl` (zelfde
+  `_resolve_wijzig_mail_override_to`-logica als de andere mails), bij `run=prod` naar
+  `planning@advitas.nl`. `spWijzigAfspraakDatumTijd` heeft drie nieuwe OUTPUT-parameters
+  (`@oud_adviseur_id`/`@oud_datum`/`@oud_tijd`) gekregen om de "van"-kant van de vergelijking te
+  kunnen leveren — die kwam niet meer uit een aparte pincode-hervalidatie sinds die stap vervallen is.
+  Best-effort: een mailfout (`_try_...`-patroon) blokkeert het opslaan zelf niet. Geverifieerd met een
+  los testscript (geen echte DB/mail-verzending): "adviseur gewijzigd" + `run=test`, "adviseur
+  ongewijzigd" + `run=prod`, en de recipient-resolutie gedragen zich allemaal zoals verwacht. Vereist
+  een nieuwe deploy van `sql/spWijzigAfspraakDatumTijd.sql` (en `sql/alles_in_1_wijzig_afspraak.sql`)
+  én `function_app.py` samen — de SP en de Python-aanroep zijn nu onderling afhankelijk (nieuwe
+  OUTPUT-parameters).
