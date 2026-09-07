@@ -1,0 +1,435 @@
+/*
+=================================================================================================
+ Wijzig-afspraak-flow: alle SQL in één bestand, in de juiste uitvoeringsvolgorde.
+ Voorstel — NOG NIET UITGEVOERD tegen SQL_DATABASE_TEST of productie.
+
+ Bevat, in volgorde:
+   1) Tabel dbo.WijzigAfspraakPincodes         (sql/WijzigAfspraakPincodes_tabel.sql)
+   2) SP   dbo.spZoekAfspraakVoorWijziging     (sql/spZoekAfspraakVoorWijziging.sql)
+   3) SP   dbo.spBewaarWijzigPincode           (sql/spBewaarWijzigPincode.sql)
+   4) SP   dbo.spValideerWijzigPincode         (sql/spValideerWijzigPincode.sql)
+   5) SP   dbo.spWijzigAfspraakDatumTijd       (sql/spWijzigAfspraakDatumTijd.sql)
+   6) GRANT-statements voor svc-AppMaakAfspraak (beide rechten-bestanden samengevoegd)
+
+ Losse bestanden per object blijven ook bestaan in deze map (sql/*.sql) — dit bestand is puur
+ gemak om alles in één keer in SSMS te kunnen doorlopen/uitvoeren.
+
+ BELANGRIJKSTE AANNAMES DIE NOG GEVERIFIEERD MOETEN WORDEN (zie ook de losse bestanden):
+   1) De PK/identity-kolom van [dbo].[Afspraak] heet [afspraak_id].
+   2) [dbo].[Afspraak].[vorm_afspraak] gebruikt de schrijfwijzen 'Online' / 'Buitendienst'
+      (Titel-case) — alleen 'Online' is bevestigd, 'Buitendienst' is een aanname naar analogie.
+   3) [dbo].[Klanten] bestaat met kolommen [klant_id], [email] en [postcode] — AgendaPicker's
+      eigen code detecteert dit schema juist DYNAMISCH omdat het kan variëren; deze SP's gaan uit
+      van de meest waarschijnlijke, vaste namen. Check dit eerst met bijv. `sp_help '[dbo].[Klanten]'`.
+   4) [dbo].[users] heeft een PK-kolom [id] (voor de creator_id-fallback in spWijzigAfspraakDatumTijd).
+   5) Een aantal [dbo].[actions]-kolommen (direction, product_id, tag, communication, Oorsprong,
+      Oorsprong_categorie, insteek_id, field_contents_4 t/m 12) staan op NULL — check of dat
+      businessmatig klopt voor het "Afspraakwijziging"-scenario.
+
+ Controleer vóór het GRANT-blok eerst wat svc-AppMaakAfspraak al heeft, om overbodige grants te
+ vermijden:
+   SELECT pr.name AS principal, pe.permission_name, pe.state_desc, o.name AS object_name
+   FROM sys.database_permissions pe
+   JOIN sys.database_principals pr ON pe.grantee_principal_id = pr.principal_id
+   LEFT JOIN sys.objects o ON pe.major_id = o.object_id
+   WHERE pr.name = 'svc-AppMaakAfspraak';
+=================================================================================================
+*/
+
+-- =================================================================================================
+-- 1) Tabel dbo.WijzigAfspraakPincodes
+-- Vervangt de Azure Table Storage-opslag van pincodes door een SQL-tabel — één actieve pincode
+-- per afspraak_id.
+-- =================================================================================================
+CREATE TABLE [dbo].[WijzigAfspraakPincodes] (
+    [id]            INT IDENTITY(1,1) PRIMARY KEY,
+    [afspraak_id]   INT NOT NULL,
+    [email]         NVARCHAR(255) NOT NULL,
+    [pincode]       CHAR(6) NOT NULL,
+    [postcode]      NVARCHAR(10) NULL,
+    [attempts]      INT NOT NULL DEFAULT 0,
+    [aangemaakt_op] DATETIME2 NOT NULL,
+    [verloopt_op]   DATETIME2 NOT NULL
+);
+GO
+
+CREATE INDEX [IX_WijzigAfspraakPincodes_email] ON [dbo].[WijzigAfspraakPincodes] ([email]);
+GO
+
+CREATE INDEX [IX_WijzigAfspraakPincodes_afspraak_id] ON [dbo].[WijzigAfspraakPincodes] ([afspraak_id]);
+GO
+
+
+-- =================================================================================================
+-- 2) SP dbo.spZoekAfspraakVoorWijziging
+-- Zoekt de eerstvolgende toekomstige afspraak met status 'Open' voor het opgegeven e-mailadres.
+-- Wordt aangeroepen door AfspraakMaken's /wijzig-aanvraag, vóórdat er een pincode gegenereerd
+-- wordt — als er geen afspraak gevonden wordt, wordt er geen pincode aangemaakt/verstuurd
+-- (voorkomt dat je via deze route kunt achterhalen welke e-mailadressen wel/niet een klant zijn).
+-- =================================================================================================
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[spZoekAfspraakVoorWijziging]
+    @email           NVARCHAR(255),
+    @afspraak_id     INT OUTPUT,
+    @adviseur_id     INT OUTPUT,
+    @datum           DATE OUTPUT,
+    @tijd            TIME OUTPUT,
+    @duur_kwartieren INT OUTPUT,
+    @vorm_afspraak   NVARCHAR(20) OUTPUT,
+    @postcode        NVARCHAR(10) OUTPUT,
+    @gevonden        BIT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET @gevonden = 0;
+
+    DECLARE @klant_id INT;
+    DECLARE @open_state_id INT;
+
+    SELECT TOP 1 @klant_id = [klant_id], @postcode = [postcode]
+    FROM [dbo].[Klanten]
+    WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)));
+
+    IF @klant_id IS NULL
+        RETURN;
+
+    SELECT TOP 1 @open_state_id = [afspraakstate-id]
+    FROM [dbo].[Status afspraak]
+    WHERE [afspraakstate_label] = N'Open';
+
+    IF @open_state_id IS NULL
+        RETURN;
+
+    SELECT TOP 1
+        @afspraak_id = [afspraak_id],
+        @adviseur_id = [adviseur_id],
+        @datum = CAST([datum_adviesgesprek] AS date),
+        @tijd = CAST([tijd_adviesgesprek] AS time),
+        @duur_kwartieren = [duur],
+        @vorm_afspraak = [vorm_afspraak]
+    FROM [dbo].[Afspraak]
+    WHERE [klant_id] = @klant_id
+      AND [afspraakstate-id] = @open_state_id
+      AND [datum_adviesgesprek] >= CAST(GETDATE() AS date)
+    ORDER BY [datum_adviesgesprek] ASC, [tijd_adviesgesprek] ASC;
+
+    IF @afspraak_id IS NOT NULL
+        SET @gevonden = 1;
+END
+GO
+
+
+-- =================================================================================================
+-- 3) SP dbo.spBewaarWijzigPincode
+-- Slaat een nieuw gegenereerde pincode op. Eén actieve pincode per afspraak_id: een nieuwe
+-- aanvraag voor dezelfde afspraak verwijdert het oude record.
+-- =================================================================================================
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[spBewaarWijzigPincode]
+    @afspraak_id        INT,
+    @email              NVARCHAR(255),
+    @pincode            CHAR(6),
+    @postcode           NVARCHAR(10) = NULL,
+    @geldigheid_minuten INT = 5
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRANSACTION;
+
+    BEGIN TRY
+        DELETE FROM [dbo].[WijzigAfspraakPincodes] WHERE [afspraak_id] = @afspraak_id;
+
+        INSERT INTO [dbo].[WijzigAfspraakPincodes]
+            ([afspraak_id], [email], [pincode], [postcode], [attempts], [aangemaakt_op], [verloopt_op])
+        VALUES
+            (@afspraak_id, @email, @pincode, @postcode, 0, SYSUTCDATETIME(), DATEADD(minute, @geldigheid_minuten, SYSUTCDATETIME()));
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END
+GO
+
+
+-- =================================================================================================
+-- 4) SP dbo.spValideerWijzigPincode
+-- Valideert een ingevoerde pincode op basis van e-mailadres. Wordt aangeroepen door zowel
+-- /wijzig-verificatie als opnieuw door /wijzig-opslaan. Bij mismatch/verlopen/te vaak fout:
+-- @geldig = 0, generieke @foutmelding (voorkomt informatie-lekken). Bij match: retourneert de
+-- actuele afspraak-informatie en @geldig = 1.
+-- =================================================================================================
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[spValideerWijzigPincode]
+    @email            NVARCHAR(255),
+    @pincode          CHAR(6),
+    @max_pogingen     INT = 5,
+    @afspraak_id      INT OUTPUT,
+    @adviseur_id      INT OUTPUT,
+    @datum            DATE OUTPUT,
+    @tijd             TIME OUTPUT,
+    @duur_kwartieren  INT OUTPUT,
+    @vorm_afspraak    NVARCHAR(20) OUTPUT,
+    @postcode         NVARCHAR(10) OUTPUT,
+    @geldig           BIT OUTPUT,
+    @foutmelding      NVARCHAR(200) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET @geldig = 0;
+    SET @foutmelding = N'Ongeldige of verlopen pincode.';
+
+    DECLARE @id INT, @opgeslagen_pincode CHAR(6), @verloopt_op DATETIME2, @attempts INT, @gekoppeld_afspraak_id INT;
+
+    SELECT TOP 1
+        @id = [id],
+        @opgeslagen_pincode = [pincode],
+        @verloopt_op = [verloopt_op],
+        @attempts = [attempts],
+        @gekoppeld_afspraak_id = [afspraak_id],
+        @postcode = [postcode]
+    FROM [dbo].[WijzigAfspraakPincodes]
+    WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)))
+    ORDER BY [aangemaakt_op] DESC;
+
+    IF @id IS NULL
+        RETURN;
+
+    IF SYSUTCDATETIME() >= @verloopt_op
+    BEGIN
+        DELETE FROM [dbo].[WijzigAfspraakPincodes] WHERE [id] = @id;
+        RETURN;
+    END
+
+    IF @attempts >= @max_pogingen
+    BEGIN
+        DELETE FROM [dbo].[WijzigAfspraakPincodes] WHERE [id] = @id;
+        RETURN;
+    END
+
+    IF @opgeslagen_pincode <> @pincode
+    BEGIN
+        UPDATE [dbo].[WijzigAfspraakPincodes] SET [attempts] = [attempts] + 1 WHERE [id] = @id;
+        IF @attempts + 1 >= @max_pogingen
+            DELETE FROM [dbo].[WijzigAfspraakPincodes] WHERE [id] = @id;
+        RETURN;
+    END
+
+    SELECT
+        @afspraak_id = [afspraak_id],
+        @adviseur_id = [adviseur_id],
+        @datum = CAST([datum_adviesgesprek] AS date),
+        @tijd = CAST([tijd_adviesgesprek] AS time),
+        @duur_kwartieren = [duur],
+        @vorm_afspraak = [vorm_afspraak]
+    FROM [dbo].[Afspraak]
+    WHERE [afspraak_id] = @gekoppeld_afspraak_id;
+
+    IF @afspraak_id IS NULL
+    BEGIN
+        -- De gekoppelde afspraak bestaat niet meer (bijv. verwijderd sinds de pincode-aanvraag).
+        SET @foutmelding = N'De bijbehorende afspraak is niet meer beschikbaar.';
+        RETURN;
+    END
+
+    SET @geldig = 1;
+    SET @foutmelding = NULL;
+END
+GO
+
+
+-- =================================================================================================
+-- 5) SP dbo.spWijzigAfspraakDatumTijd
+-- Slaat de nieuwe datum/tijd/adviseur/vorm op voor een bestaande afspraak, logt de wijziging in
+-- dbo.actions (zelfde patroon als [PowerBI].[usp_Reservering_OmzettenNaarAfspraak]), en ruimt de
+-- bijbehorende pincode op (one-time use).
+-- =================================================================================================
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[spWijzigAfspraakDatumTijd]
+  @afspraak_id      int,
+  @adviseur_id      int,
+  @datum            date,
+  @tijd             time,
+  @duur_kwartieren  int,
+  @vorm_afspraak    nvarchar(20),
+  @foutmelding      nvarchar(500) OUTPUT
+AS
+BEGIN
+  SET NOCOUNT ON;
+  SET XACT_ABORT ON;
+
+  SET @foutmelding = NULL;
+
+  -- Normaliseer 'online'/'buitendienst' (zoals de Python-laag ze aanlevert) naar de
+  -- Titel-case-schrijfwijze die [dbo].[Afspraak].[vorm_afspraak] gebruikt.
+  DECLARE @vormAfspraakGenormaliseerd nvarchar(20) = CASE LOWER(@vorm_afspraak)
+    WHEN 'online' THEN N'Online'
+    WHEN 'buitendienst' THEN N'Buitendienst'
+    ELSE @vorm_afspraak
+  END;
+
+  -- usp_Reservering_OmzettenNaarAfspraak laat zien dat [tijd_adviesgesprek], als die kolom
+  -- gebruikt wordt, de VOLLE datum+tijd bevat (zie de COALESCE/TRY_CONVERT-fallback aldaar) —
+  -- niet alleen het tijdsdeel. Dat patroon volgen we hier ook.
+  DECLARE @datumTijd datetime2 = CAST(
+    CONVERT(varchar(10), @datum, 120) + ' ' + CONVERT(varchar(8), @tijd, 108) AS datetime2
+  );
+
+  BEGIN TRANSACTION;
+
+  BEGIN TRY
+    -- sale_oppertunity_id van de bestaande afspraak ophalen (nodig voor de actions-insert
+    -- hieronder) en tegelijk bevestigen dat de afspraak bestaat.
+    DECLARE @saleOpportunityId nvarchar(255);
+
+    SELECT @saleOpportunityId = [saleop_id]
+    FROM [dbo].[Afspraak]
+    WHERE [afspraak_id] = @afspraak_id;
+
+    IF @@ROWCOUNT = 0
+    BEGIN
+      ROLLBACK TRANSACTION;
+      SET @foutmelding = N'Afspraak niet gevonden.';
+      RETURN;
+    END;
+
+    UPDATE [dbo].[Afspraak]
+    SET
+      [adviseur_id] = @adviseur_id,
+      [datum_adviesgesprek] = CAST(@datum AS datetime2),
+      [tijd_adviesgesprek] = @datumTijd,
+      [duur] = @duur_kwartieren,
+      [vorm_afspraak] = @vormAfspraakGenormaliseerd,
+      [updated_at] = GETDATE()
+    WHERE [afspraak_id] = @afspraak_id;
+
+    -- Actions-log voor de wijziging. Deze SP wordt aangeroepen door de AfspraakMaken Azure
+    -- Function (function-key-auth, geen ingelogde gebruiker) — er is dus nooit een "ingelogde
+    -- gebruiker"-context beschikbaar, vandaar altijd de fallback naar de eerste rij van dbo.users
+    -- (TOP 1 zonder ORDER BY is geen garantie voor een specifieke rij — voeg een ORDER BY/WHERE
+    -- toe als er een vaste systeemgebruiker moet zijn).
+    DECLARE @creatorId uniqueidentifier;
+    SELECT TOP 1 @creatorId = [id] FROM dbo.users;
+
+    DECLARE @actionTypeId uniqueidentifier = '17AE20FB-8E45-4201-8FB8-952FB2C8CA4F'; -- PLANNING_MOVE_ACTION_TYPE_ID ("Afspraakwijziging")
+
+    INSERT INTO [dbo].[actions] (
+      [id],
+      [creator_id],
+      [sale_oppertunity_id],
+      [action_type_id],
+      [state_id],
+      [comments],
+      [role],
+      [field_contents_1],
+      [field_contents_2],
+      [field_contents_3],
+      [created_at],
+      [updated_at],
+      [field_contents_4],
+      [field_contents_5],
+      [direction],
+      [field_contents_6],
+      [field_contents_7],
+      [field_contents_8],
+      [field_contents_9],
+      [field_contents_10],
+      [product_id],
+      [tag],
+      [source],
+      [communication],
+      [afspraak_id],
+      [auto_type],
+      [Oorsprong],
+      [Oorsprong_categorie],
+      [field_contents_11],
+      [field_contents_12],
+      [insteek_id],
+      [created_at_dutch]
+    )
+    VALUES (
+      NEWID(),
+      @creatorId,
+      @saleOpportunityId,
+      @actionTypeId,
+      35,
+      N'',
+      N'telemarketer',
+      CAST(@afspraak_id AS nvarchar(50)),
+      CAST(@adviseur_id AS nvarchar(50)),
+      CONVERT(nvarchar(50), @datumTijd, 120),
+      SYSUTCDATETIME(),
+      SYSUTCDATETIME(),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      N'Manual (Swap)',
+      NULL,
+      @afspraak_id,
+      N'manual',
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      DATEADD(minute, DATEDIFF(minute, GETUTCDATE(), GETDATE()), SYSUTCDATETIME())
+    );
+
+    -- Pincode is nu verbruikt (one-time use) — opruimen zodat 'ie niet herbruikt kan worden.
+    DELETE FROM [dbo].[WijzigAfspraakPincodes] WHERE [afspraak_id] = @afspraak_id;
+
+    COMMIT TRANSACTION;
+  END TRY
+  BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    SET @foutmelding = ERROR_MESSAGE();
+  END CATCH
+END;
+GO
+
+
+-- =================================================================================================
+-- 6) Rechten voor svc-AppMaakAfspraak
+-- Zelfde patroon als de buitendienst-availability-fix (docs/DECISIONS.md, 2026-09-01) —
+-- ontbrekende GRANT EXECUTE/SELECT op een nieuwe SP + onderliggende tabellen gaf daar een
+-- generieke HTTP 500. Pas de gebruikersnaam hieronder aan als het service-account inmiddels
+-- anders heet dan svc-AppMaakAfspraak.
+-- =================================================================================================
+GRANT EXECUTE ON [dbo].[spZoekAfspraakVoorWijziging] TO [svc-AppMaakAfspraak];
+GRANT EXECUTE ON [dbo].[spBewaarWijzigPincode] TO [svc-AppMaakAfspraak];
+GRANT EXECUTE ON [dbo].[spValideerWijzigPincode] TO [svc-AppMaakAfspraak];
+GRANT EXECUTE ON [dbo].[spWijzigAfspraakDatumTijd] TO [svc-AppMaakAfspraak];
+GRANT SELECT ON [dbo].[Klanten] TO [svc-AppMaakAfspraak];
+GRANT SELECT, UPDATE ON [dbo].[Afspraak] TO [svc-AppMaakAfspraak];
+GRANT SELECT ON [dbo].[Status afspraak] TO [svc-AppMaakAfspraak];
+GRANT INSERT ON [dbo].[actions] TO [svc-AppMaakAfspraak];
+GRANT SELECT ON [dbo].[users] TO [svc-AppMaakAfspraak];
+GRANT DELETE ON [dbo].[WijzigAfspraakPincodes] TO [svc-AppMaakAfspraak];
+GO
