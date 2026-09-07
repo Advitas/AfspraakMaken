@@ -127,3 +127,10 @@
   `[dbo].[Afspraak].[pre_aid] IS NOT NULL`. **NIET geverifieerd:** kolomnaam `pre_aid` komt alleen uit
   tekst van de gebruiker. Vereist dezelfde SQL/code-deploy als de andere nog openstaande wijzigingen
   hierboven.
+- [x] **Fallback naar Klanten-postcode als er geen afspraak-adres is (2026-09-07):** in de praktijk
+  bleek een buitendienst-afspraak zonder gekoppeld adres (`adres_sleutel IS NULL`) te bestaan — dan
+  bleef `@postcode` leeg en gaf `/api/availability` een 400-fout. `spZoekAfspraakVoorWijziging` en
+  `spValideerWijzigPincode` vallen nu terug op `[dbo].[Klanten].[postcode]` (via `klant_id`) als het
+  afspraak-adres geen postcode oplevert — het gedrag van vóór de "postcode uit adres"-wijziging,
+  maar nu als fallback i.p.v. als enige bron. Vereist dezelfde SQL-deploy als de andere nog
+  openstaande wijzigingen hierboven.

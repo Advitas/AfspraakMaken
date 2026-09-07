@@ -475,3 +475,26 @@ JSON-respons. AgendaPicker gebruikt dit om de "toon meer tijden"-toggle te tonen
 `alles_in_1_wijzig_afspraak.sql`) en `function_app.py`. **Niet geverifieerd:** kolomnaam `pre_aid` komt
 alleen uit tekst van de gebruiker, niet gecontroleerd tegen het echte schema — zelfde risico als de
 eerdere schema-aannames in deze flow.
+
+---
+
+## 2026-09-07 — Fallback naar Klanten-postcode als er geen afspraak-adres gekoppeld is
+
+**Context:** direct na het testen van de vorige ADR (postcode uit afspraak-adres) bleek in de praktijk
+dat een buitendienst-afspraak zonder gekoppeld adres bestaat: `/api/availability` gaf een 400
+("Parameter postcode is verplicht...") omdat `@adres_sleutel IS NULL` was voor die afspraak, en de
+`IF @adres_sleutel IS NOT NULL`-guard de hele postcode-lookup dan overslaat zonder fout — `@postcode`
+bleef simpelweg leeg. De gebruiker: *"als er geen adres is gekoppeld dan de postcode gebruikten uit
+klanten data"* — expliciet verzoek om terug te vallen op de oude bron (Klanten) in dat geval.
+
+**Beslissing:** beide stored procedures (`spZoekAfspraakVoorWijziging`, `spValideerWijzigPincode`)
+vallen nu terug op `[dbo].[Klanten].[postcode]` als de afspraak-adres-lookup geen postcode oplevert
+(`IF @postcode IS NULL`). `spZoekAfspraakVoorWijziging` haalt de klant-postcode op in dezelfde query
+als `klant_id` (heeft daar al een e-mail-match); `spValideerWijzigPincode` haalt `klant_id` erbij in
+de al bestaande fresh-herquery van `[dbo].[Afspraak]` en doet daarna een aparte `Klanten`-lookup. Dit
+herstelt `[dbo].[Klanten]`'s `postcode`-kolom als (nu secundaire) bron — die was in de vorige ADR juist
+losgelaten.
+
+**Gevolgen:** vereist een nieuwe deploy van beide stored procedures (en
+`sql/alles_in_1_wijzig_afspraak.sql`). Geen wijziging aan `function_app.py` of AgendaPicker nodig — dit
+is puur een SQL-interne fallback, de output-contractvorm (`postcode` in de response) blijft ongewijzigd.

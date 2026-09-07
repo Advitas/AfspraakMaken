@@ -27,9 +27,10 @@
       bewust ook underscore (eigen naamgevingsconventie, geen bestaand schema om aan te sluiten).
    2) [dbo].[Afspraak].[vorm_afspraak] gebruikt de schrijfwijzen 'Online' / 'Buitendienst'
       (Titel-case) — alleen 'Online' is bevestigd, 'Buitendienst' is een aanname naar analogie.
-   3) [dbo].[Klanten] bestaat met kolommen [klant_id] en [email] — AgendaPicker's eigen code
-      detecteert dit schema juist DYNAMISCH omdat het kan variëren; deze SP's gaan uit van de meest
-      waarschijnlijke, vaste namen. Check dit eerst met bijv. `sp_help '[dbo].[Klanten]'`.
+   3) [dbo].[Klanten] bestaat met kolommen [klant_id], [email] en [postcode] (dat laatste sinds
+      2026-09-07 weer nodig als fallback, zie punt 7) — AgendaPicker's eigen code detecteert dit
+      schema juist DYNAMISCH omdat het kan variëren; deze SP's gaan uit van de meest waarschijnlijke,
+      vaste namen. Check dit eerst met bijv. `sp_help '[dbo].[Klanten]'`.
    4) [dbo].[users] heeft een PK-kolom [id] (voor de creator_id-fallback in spWijzigAfspraakDatumTijd).
    5) Een aantal [dbo].[actions]-kolommen (direction, product_id, tag, communication, Oorsprong,
       Oorsprong_categorie, insteek_id, field_contents_4 t/m 12) staan op NULL — check of dat
@@ -40,12 +41,14 @@
       AgendaPicker's /api/availability accepteert toch alleen hypotheek/vermogen/schade, dus 'schade'
       is de enige bruikbare uitkomst). NIET bevestigd: of [insteek-id]/[prodcat-id] daadwerkelijk
       koppeltekens gebruiken (aangenomen, naar analogie van [afspraakstate-id]).
-   7) @postcode (alleen relevant bij vorm_afspraak=buitendienst) komt sinds 2026-09-07 NIET meer uit
-      [dbo].[Klanten], maar uit het afspraak-adres zelf: [dbo].[Afspraak].[adres_sleutel] (underscore)
-      -> [dbo].[Adres].[Adres-id] (koppelteken) -> LEFT([PKD], 4). Kolomnamen [adres_sleutel]/
-      [Adres-id]/[PKD] zijn NIET geverifieerd tegen het echte schema, alleen aangeleverd als tekst
-      door de gebruiker — controleer dit vóór uitvoering (zelfde risico als eerdere aannames hierboven:
-      een verkeerde kolomnaam geeft een "Invalid column name"-fout).
+   7) @postcode (alleen relevant bij vorm_afspraak=buitendienst) komt sinds 2026-09-07 primair uit het
+      afspraak-adres zelf: [dbo].[Afspraak].[adres_sleutel] (underscore) -> [dbo].[Adres].[Adres-id]
+      (koppelteken) -> LEFT([PKD], 4). Kolomnamen [adres_sleutel]/[Adres-id]/[PKD] zijn NIET
+      geverifieerd tegen het echte schema, alleen aangeleverd als tekst door de gebruiker —
+      controleer dit vóór uitvoering (zelfde risico als eerdere aannames hierboven: een verkeerde
+      kolomnaam geeft een "Invalid column name"-fout). Als er geen adres gekoppeld is of het adres
+      geen postcode oplevert, valt @postcode terug op [dbo].[Klanten].[postcode] (aangeleverd
+      2026-09-07, na een praktijkgeval waarbij een afspraak geen gekoppeld adres bleek te hebben).
    8) @doorgepland (nieuw, 2026-09-07) komt uit [dbo].[Afspraak].[pre_aid] (underscore) — gevuld =
       "doorgepland", AgendaPicker moet dan altijd op de oorspronkelijke adviseur filteren en geen
       "toon meer tijden"-keuze aanbieden. Kolomnaam [pre_aid] NIET geverifieerd tegen het echte
@@ -134,8 +137,9 @@ BEGIN
     DECLARE @klant_id INT;
     DECLARE @open_state_id INT;
     DECLARE @adres_sleutel INT;
+    DECLARE @klanten_postcode NVARCHAR(10);
 
-    SELECT TOP 1 @klant_id = [klant_id]
+    SELECT TOP 1 @klant_id = [klant_id], @klanten_postcode = [postcode]
     FROM [dbo].[Klanten]
     WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)));
 
@@ -173,6 +177,10 @@ BEGIN
             FROM [dbo].[Adres]
             WHERE [Adres-id] = @adres_sleutel;
         END
+
+        -- Geen (bruikbaar) afspraak-adres gevonden: terugvallen op de klant-postcode.
+        IF @postcode IS NULL
+            SET @postcode = @klanten_postcode;
     END
 END
 GO
@@ -287,7 +295,7 @@ BEGIN
         RETURN;
     END
 
-    DECLARE @insteek_id INT, @prodcat_id INT, @adres_sleutel INT, @pre_aid INT;
+    DECLARE @insteek_id INT, @prodcat_id INT, @adres_sleutel INT, @pre_aid INT, @klant_id INT;
 
     SELECT
         @afspraak_id = [afspraak-id],
@@ -299,7 +307,8 @@ BEGIN
         @insteek_id = [insteek-id],
         @prodcat_id = [prodcat-id],
         @adres_sleutel = [adres_sleutel],
-        @pre_aid = [pre_aid]
+        @pre_aid = [pre_aid],
+        @klant_id = [klant_id]
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @gekoppeld_afspraak_id;
 
@@ -315,6 +324,14 @@ BEGIN
         SELECT TOP 1 @postcode = LEFT([PKD], 4)
         FROM [dbo].[Adres]
         WHERE [Adres-id] = @adres_sleutel;
+    END
+
+    -- Geen (bruikbaar) afspraak-adres gevonden: terugvallen op de klant-postcode.
+    IF @postcode IS NULL AND @klant_id IS NOT NULL
+    BEGIN
+        SELECT TOP 1 @postcode = [postcode]
+        FROM [dbo].[Klanten]
+        WHERE [klant_id] = @klant_id;
     END
 
     SET @agenda = CASE

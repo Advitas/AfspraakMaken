@@ -20,13 +20,16 @@ de eerdere aannames over [dbo].[Afspraak]):
    meerdere gelijktijdige afspraken voor dezelfde klant wordt er willekeurig één gekozen (geen expliciete
    tiebreaker anders dan tijd) — laat weten of dat businessmatig anders moet.
 5) @postcode (alleen relevant bij vorm_afspraak=buitendienst, nodig voor de beschikbaarheids-kalender;
-   mag NULL zijn voor online-afspraken) komt NIET uit [dbo].[Klanten] maar uit het afspraak-adres zelf:
+   mag NULL zijn voor online-afspraken) komt primair uit het afspraak-adres zelf:
    [dbo].[Afspraak].[adres_sleutel] (underscore, FK-conventie zoals klant_id/adviseur_id) verwijst naar
    [dbo].[Adres].[Adres-id] (koppelteken, PK-conventie zoals [afspraak-id]/[afspraakstate-id]).
    [dbo].[Adres] heeft een kolom [PKD] (postcode, bijv. "1234AB") — @postcode wordt de eerste 4 tekens
    daarvan (aangeleverd 2026-09-07). Kolomnamen [adres_sleutel]/[Adres-id]/[PKD] zijn NIET geverifieerd
    tegen het echte schema, alleen aangeleverd door de gebruiker als tekst — controleer dit vóór
-   uitvoering.
+   uitvoering. Als er geen adres gekoppeld is (@adres_sleutel IS NULL) of het adres geen postcode
+   oplevert, valt @postcode terug op [dbo].[Klanten].[postcode] (aangeleverd 2026-09-07, na een
+   praktijkgeval waarbij een afspraak geen gekoppeld adres bleek te hebben) — die Klanten-kolom is,
+   net als [klant_id]/[email], zelf ook niet geverifieerd.
 ******/
 SET ANSI_NULLS ON
 GO
@@ -51,8 +54,9 @@ BEGIN
     DECLARE @klant_id INT;
     DECLARE @open_state_id INT;
     DECLARE @adres_sleutel INT;
+    DECLARE @klanten_postcode NVARCHAR(10);
 
-    SELECT TOP 1 @klant_id = [klant_id]
+    SELECT TOP 1 @klant_id = [klant_id], @klanten_postcode = [postcode]
     FROM [dbo].[Klanten]
     WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)));
 
@@ -90,6 +94,10 @@ BEGIN
             FROM [dbo].[Adres]
             WHERE [Adres-id] = @adres_sleutel;
         END
+
+        -- Geen (bruikbaar) afspraak-adres gevonden: terugvallen op de klant-postcode.
+        IF @postcode IS NULL
+            SET @postcode = @klanten_postcode;
     END
 END
 GO

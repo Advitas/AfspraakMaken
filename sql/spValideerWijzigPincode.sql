@@ -26,7 +26,10 @@ analogie van [afspraakstate-id]. Controleer dit vóór uitvoering.
 @postcode wordt (sinds 2026-09-07) niet meer overgenomen uit de opgeslagen pincode-rij (die kan
 verouderd zijn), maar net als de andere afspraak-velden vers herleid uit [dbo].[Afspraak] via
 [adres_sleutel] -> [dbo].[Adres].[Adres-id] -> LEFT([PKD], 4). Zie sql/spZoekAfspraakVoorWijziging.sql
-voor dezelfde, nog niet geverifieerde aanname over deze kolomnamen.
+voor dezelfde, nog niet geverifieerde aanname over deze kolomnamen. Als er geen adres gekoppeld is
+(@adres_sleutel IS NULL) of het adres geen postcode oplevert, valt @postcode terug op
+[dbo].[Klanten].[postcode] via [dbo].[Afspraak].[klant_id] (aangeleverd 2026-09-07, na een
+praktijkgeval waarbij een afspraak geen gekoppeld adres bleek te hebben).
 
 @doorgepland (nieuw, 2026-09-07): BIT, afgeleid uit [dbo].[Afspraak].[pre_aid] — als die kolom gevuld
 is (niet NULL), is de afspraak "doorgepland" en moet AgendaPicker altijd op de oorspronkelijke
@@ -95,7 +98,7 @@ BEGIN
         RETURN;
     END
 
-    DECLARE @insteek_id INT, @prodcat_id INT, @adres_sleutel INT, @pre_aid INT;
+    DECLARE @insteek_id INT, @prodcat_id INT, @adres_sleutel INT, @pre_aid INT, @klant_id INT;
 
     SELECT
         @afspraak_id = [afspraak-id],
@@ -107,7 +110,8 @@ BEGIN
         @insteek_id = [insteek-id],
         @prodcat_id = [prodcat-id],
         @adres_sleutel = [adres_sleutel],
-        @pre_aid = [pre_aid]
+        @pre_aid = [pre_aid],
+        @klant_id = [klant_id]
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @gekoppeld_afspraak_id;
 
@@ -123,6 +127,14 @@ BEGIN
         SELECT TOP 1 @postcode = LEFT([PKD], 4)
         FROM [dbo].[Adres]
         WHERE [Adres-id] = @adres_sleutel;
+    END
+
+    -- Geen (bruikbaar) afspraak-adres gevonden: terugvallen op de klant-postcode.
+    IF @postcode IS NULL AND @klant_id IS NOT NULL
+    BEGIN
+        SELECT TOP 1 @postcode = [postcode]
+        FROM [dbo].[Klanten]
+        WHERE [klant_id] = @klant_id;
     END
 
     SET @agenda = CASE

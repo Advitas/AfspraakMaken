@@ -140,10 +140,12 @@ Body: { email, pincode, run }
 Gedrag: controleert de pincode via [dbo].[spValideerWijzigPincode]. Bij succes: retourneert afspraak_id,
 adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, postcode, agenda (afgeleid uit insteek_id/
 prodcat_id — hypotheek/vermogen/schade), doorgepland van de gekoppelde afspraak (voor de kalender +
-informatieweergave in AgendaPicker). postcode komt (sinds 2026-09-07) uit het afspraak-adres zelf —
-[dbo].[Afspraak].[adres_sleutel] -> [dbo].[Adres].[Adres-id] -> de eerste 4 tekens van [PKD] — nodig
-voor de buitendienst-beschikbaarheid, die zonder postcode een 400-fout geeft (zie /api/availability in
-USER_MANUAL.md). doorgepland (bool, ook nieuw 2026-09-07) is true als [dbo].[Afspraak].[pre_aid] gevuld
+informatieweergave in AgendaPicker). postcode komt (sinds 2026-09-07) primair uit het afspraak-adres
+zelf — [dbo].[Afspraak].[adres_sleutel] -> [dbo].[Adres].[Adres-id] -> de eerste 4 tekens van [PKD] —
+nodig voor de buitendienst-beschikbaarheid, die zonder postcode een 400-fout geeft (zie
+/api/availability in USER_MANUAL.md). Is er geen adres gekoppeld (of levert het geen postcode op),
+dan valt dit terug op [dbo].[Klanten].[postcode]. doorgepland (bool, ook nieuw 2026-09-07) is true
+als [dbo].[Afspraak].[pre_aid] gevuld
 is — geeft aan dat AgendaPicker altijd op de oorspronkelijke adviseur moet filteren (geen "toon meer
 tijden"-keuze aanbieden).
 
