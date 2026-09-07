@@ -29,6 +29,12 @@
    5) Een aantal [dbo].[actions]-kolommen (direction, product_id, tag, communication, Oorsprong,
       Oorsprong_categorie, insteek_id, field_contents_4 t/m 12) staan op NULL — check of dat
       businessmatig klopt voor het "Afspraakwijziging"-scenario.
+   6) spValideerWijzigPincode leidt @agenda af uit [insteek-id]/[prodcat-id] (mapping aangeleverd
+      2026-09-03): insteek_id=5 -> hypotheek, insteek_id=1 -> vermogen, insteek_id=35+prodcat_id=22
+      -> schade (die combinatie is op zich meerduidig — kan ook 'oakk'/'service' zijn — maar
+      AgendaPicker's /api/availability accepteert toch alleen hypotheek/vermogen/schade, dus 'schade'
+      is de enige bruikbare uitkomst). NIET bevestigd: of [insteek-id]/[prodcat-id] daadwerkelijk
+      koppeltekens gebruiken (aangenomen, naar analogie van [afspraakstate-id]).
 
  Controleer vóór het GRANT-blok eerst wat svc-AppMaakAfspraak al heeft, om overbodige grants te
  vermijden:
@@ -191,6 +197,7 @@ CREATE OR ALTER PROCEDURE [dbo].[spValideerWijzigPincode]
     @duur_kwartieren  INT OUTPUT,
     @vorm_afspraak    NVARCHAR(20) OUTPUT,
     @postcode         NVARCHAR(10) OUTPUT,
+    @agenda           NVARCHAR(20) OUTPUT,
     @geldig           BIT OUTPUT,
     @foutmelding      NVARCHAR(200) OUTPUT
 AS
@@ -235,13 +242,17 @@ BEGIN
         RETURN;
     END
 
+    DECLARE @insteek_id INT, @prodcat_id INT;
+
     SELECT
         @afspraak_id = [afspraak-id],
         @adviseur_id = [adviseur_id],
         @datum = CAST([datum_adviesgesprek] AS date),
         @tijd = CAST([tijd_adviesgesprek] AS time),
         @duur_kwartieren = [duur],
-        @vorm_afspraak = [vorm_afspraak]
+        @vorm_afspraak = [vorm_afspraak],
+        @insteek_id = [insteek-id],
+        @prodcat_id = [prodcat-id]
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @gekoppeld_afspraak_id;
 
@@ -251,6 +262,13 @@ BEGIN
         SET @foutmelding = N'De bijbehorende afspraak is niet meer beschikbaar.';
         RETURN;
     END
+
+    SET @agenda = CASE
+        WHEN @insteek_id = 5 THEN N'hypotheek'
+        WHEN @insteek_id = 1 THEN N'vermogen'
+        WHEN @insteek_id = 35 AND @prodcat_id = 22 THEN N'schade'
+        ELSE NULL
+    END;
 
     SET @geldig = 1;
     SET @foutmelding = NULL;

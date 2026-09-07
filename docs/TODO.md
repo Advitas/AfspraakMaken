@@ -74,3 +74,18 @@
   accepteren nu `email` i.p.v. `afspraak_id` als belangrijkste input (`afspraak_id` wordt server-side uit
   de gevalideerde pincode gehaald, nooit meer van de client vertrouwd). **Nog niet live getest** — de
   SQL-kant staat er nu, enige blocker is een lokale `local.settings.json` (zie curl-item hierboven).
+- [x] **`agenda` toegevoegd aan `/wijzig_verificatie`-response (2026-09-07):** AgendaPicker's
+  kalenderstap (`/api/availability`) heeft `agenda`/`adviseur_id`/`duur` nodig, afkomstig uit de te
+  wijzigen afspraak zelf. `spValideerWijzigPincode` leidt `@agenda` nu af uit `insteek_id`/`prodcat_id`
+  van `[dbo].[Afspraak]` (mapping door de gebruiker aangeleverd: insteek_id=5 → hypotheek, insteek_id=1
+  → vermogen, insteek_id=35+prodcat_id=22 → schade). **NIET bevestigd:** of `[dbo].[Afspraak]`'s kolommen
+  `[insteek-id]`/`[prodcat-id]` een koppelteken gebruiken (aangenomen, naar analogie van
+  `[afspraakstate-id]`) — controleer dit vóór de volgende SQL-deploy, anders geeft
+  `spValideerWijzigPincode` een "Invalid column name"-fout (zelfde foutklasse als de eerdere
+  `afspraak-id`-typo). Vereist een nieuwe deploy van zowel deze stored procedure
+  (`sql/spValideerWijzigPincode.sql`, ook bijgewerkt in `sql/alles_in_1_wijzig_afspraak.sql`) als
+  `function_app.py`.
+- [x] **Knop verwijderd uit de pincode-mail (2026-09-07):** op verzoek van de gebruiker bevat
+  `_build_wijzig_email` geen "Wijzig uw afspraak"-knop meer — de klant staat al op
+  `wijzig-afspraak.html` wanneer de pincode-mail binnenkomt, dus de knop was overbodig. Zie
+  `docs/DECISIONS.md`.

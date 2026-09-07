@@ -305,3 +305,54 @@ met de oudere routes.
 AfspraakMaken, én het aanpassen van `AFSPRAAK_WIJZIG_AANVRAAG_URL`/`AFSPRAAK_WIJZIG_VERIFICATIE_URL`/
 `AFSPRAAK_WIJZIG_OPSLAAN_URL` in AgendaPicker's App Settings naar de underscore-paden (bijv.
 `.../api/wijzig_aanvraag`). Zie `docs/TODO.md` voor de bijgewerkte curl-voorbeelden.
+
+---
+
+## 2026-09-07 — `agenda` afgeleid en toegevoegd aan `/wijzig_verificatie`-response
+
+**Context:** AgendaPicker's kalenderstap in de wijzig-flow roept `/api/availability` aan, en die
+procedure (`dbo.psAgendaPicker_GetAvailability`) heeft `agenda`, `duur` en `adviseur_id` nodig om de
+juiste beschikbaarheid te tonen. Deze gegevens moeten uit de te wijzigen afspraak zelf komen (verzoek
+van de gebruiker: *"De payload naar de availability moet ook nog allelrlei info mee krijgen. agenda,
+duur, adviseur_id. Die moeten uit de tewijzigen afspraak komen"*). `duur` en `adviseur_id` kwamen al
+terug via `/wijzig_verificatie` (zie de 2026-09-03 e-mail-eerst-herontwerp hierboven); `agenda` niet —
+die staat niet direct als kolom op `[dbo].[Afspraak]`, maar moet worden afgeleid.
+
+**Beslissing:** `agenda` afleiden uit `insteek_id`/`prodcat_id` van de afspraak, volgens een mapping die
+de gebruiker expliciet heeft aangeleverd:
+- `insteek_id = 5` → `hypotheek`
+- `insteek_id = 1` → `vermogen`
+- `insteek_id = 35` én `prodcat_id = 22` → `schade`
+
+(De gebruiker noemde voor die laatste combinatie ook `oakk` en `service` als mogelijke betekenis, maar
+AgendaPicker's `/api/availability` accepteert alleen `hypotheek`/`vermogen`/`schade` als agenda-filter
+— dus `schade` is in deze context de enige bruikbare waarde.) De afleiding zit in
+`spValideerWijzigPincode` (nieuwe `@agenda NVARCHAR(20) OUTPUT`-parameter, ook bijgewerkt in
+`sql/alles_in_1_wijzig_afspraak.sql`), en `function_app.py`'s `/wijzig_verificatie`-route geeft
+`agenda` nu mee in de response.
+
+**Gevolgen:** vereist een nieuwe deploy van zowel de aangepaste stored procedure als `function_app.py`
+vóórdat AgendaPicker's kalenderstap er iets mee kan doen. **Niet bevestigd:** of `[dbo].[Afspraak]`'s
+kolommen `[insteek-id]`/`[prodcat-id]` een koppelteken gebruiken (aangenomen, naar analogie van
+`[afspraakstate-id]`) — vóór uitvoeren van de SQL controleren, anders geeft de procedure een "Invalid
+column name"-fout (zelfde foutklasse als de eerdere `afspraak-id`-typo, zie ADR hierboven van
+2026-09-03).
+
+---
+
+## 2026-09-07 — Knop verwijderd uit de pincode-mail
+
+**Context:** de pincode-mail (`_build_wijzig_email`) bevatte een "Wijzig uw afspraak"-knop die naar
+`wijzig-afspraak.html?email=...` linkte. Sinds het e-mail-eerst-herontwerp (zie ADR van 2026-09-03) is
+die knop overbodig: de klant is al op die pagina wanneer de pincode wordt aangevraagd (het is de pagina
+zélf die het e-mailadres uitvraagt en de aanvraag triggert), dus de knop leidde alleen terug naar waar
+de klant al stond. Expliciet verzoek van de gebruiker: *"in het pincode mailtje hoeft geen knop te
+zitten"*.
+
+**Beslissing:** de knop (en de nu ongebruikte `link_url`/`agendapicker_base`-opbouw) verwijderd uit
+`_build_wijzig_email` in `function_app.py`. De mail toont alleen nog de pincode zelf plus de
+test-/override-banners.
+
+**Gevolgen:** geen — dit is een geïsoleerde wijziging in de e-mail-body, geen wijziging aan de
+`AGENDAPICKER_BASE_URL`-env var (die blijft in gebruik voor de link in de afspraak-bevestigingsmail,
+zie eerdere ADR).

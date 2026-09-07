@@ -1220,7 +1220,8 @@ def _call_sp_valideer_wijzig_pincode(cursor, email: str, pincode: str) -> dict:
     cursor.execute(
         """
         DECLARE @afspraak_id INT, @adviseur_id INT, @datum DATE, @tijd TIME, @duur_kwartieren INT,
-                @vorm_afspraak NVARCHAR(20), @postcode NVARCHAR(10), @geldig BIT, @foutmelding NVARCHAR(200);
+                @vorm_afspraak NVARCHAR(20), @postcode NVARCHAR(10), @agenda NVARCHAR(20), @geldig BIT,
+                @foutmelding NVARCHAR(200);
 
         EXEC [dbo].[spValideerWijzigPincode]
             @email = ?,
@@ -1232,12 +1233,13 @@ def _call_sp_valideer_wijzig_pincode(cursor, email: str, pincode: str) -> dict:
             @duur_kwartieren = @duur_kwartieren OUTPUT,
             @vorm_afspraak = @vorm_afspraak OUTPUT,
             @postcode = @postcode OUTPUT,
+            @agenda = @agenda OUTPUT,
             @geldig = @geldig OUTPUT,
             @foutmelding = @foutmelding OUTPUT;
 
         SELECT @afspraak_id AS afspraak_id, @adviseur_id AS adviseur_id, @datum AS datum, @tijd AS tijd,
                @duur_kwartieren AS duur_kwartieren, @vorm_afspraak AS vorm_afspraak, @postcode AS postcode,
-               @geldig AS geldig, @foutmelding AS foutmelding;
+               @agenda AS agenda, @geldig AS geldig, @foutmelding AS foutmelding;
         """,
         email,
         pincode,
@@ -1261,11 +1263,6 @@ def _build_wijzig_email(
     is_prod = str(run_value).strip().lower() == "prod"
     subject_prefix = "" if is_prod else "[TEST] "
     subject = f"{subject_prefix}Pincode om uw afspraak te wijzigen"
-
-    agendapicker_base = os.getenv(
-        "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net"
-    ).rstrip("/")
-    link_url = f"{agendapicker_base}/wijzig-afspraak.html?{urlencode({'email': email})}"
 
     test_banner = (
         ""
@@ -1294,11 +1291,6 @@ def _build_wijzig_email(
         "<p>Gebruik onderstaande pincode om uw afspraak te wijzigen. De pincode is "
         f"<strong>5 minuten</strong> geldig.</p>"
         f'<p style="font-size:28px;font-weight:bold;letter-spacing:4px;">{html.escape(pincode)}</p>'
-        '<p style="margin-top:16px;">'
-        f'<a href="{link_url}" style="background-color:#1a3c6e;color:#ffffff;'
-        'padding:8px 16px;border-radius:4px;text-decoration:none;display:inline-block;">'
-        "Wijzig uw afspraak</a>"
-        "</p>"
         '<p style="color:#888;font-size:12px;margin-top:16px;">'
         "Automatisch gegenereerd door AfspraakMaken. Heeft u dit niet aangevraagd? Dan kunt u deze "
         "e-mail negeren."
@@ -1528,6 +1520,7 @@ def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
                 "duur_kwartieren": resultaat.get("duur_kwartieren"),
                 "vorm_afspraak": resultaat.get("vorm_afspraak"),
                 "postcode": resultaat.get("postcode"),
+                "agenda": resultaat.get("agenda"),
             },
             default=str,
         ),

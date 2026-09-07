@@ -131,14 +131,16 @@ Gedrag: zoekt via [dbo].[spZoekAfspraakVoorWijziging] de eerstvolgende toekomsti
 'Open' voor dit e-mailadres. Geen afspraak gevonden: HTTP 404, geen mail verstuurd (voorkomt dat je via
 deze route kunt achterhalen welke e-mailadressen wel/niet klant zijn). Wel gevonden: genereert een
 6-cijferige pincode (5 min geldig, max 5 pogingen — bewaakt in SQL, zie [dbo].[WijzigAfspraakPincodes]),
-slaat die op via [dbo].[spBewaarWijzigPincode], en mailt de pincode + een link naar de
-AgendaPicker-wijzigpagina (met `email` voorgevuld) naar dat e-mailadres.
+slaat die op via [dbo].[spBewaarWijzigPincode], en mailt alleen de pincode (geen knop/link — de klant
+staat al op de AgendaPicker-wijzigpagina, dat scherm heeft juist deze aanvraag getriggerd) naar dat
+e-mailadres.
 
 POST /api/wijzig_verificatie
 Body: { email, pincode, run }
 Gedrag: controleert de pincode via [dbo].[spValideerWijzigPincode]. Bij succes: retourneert afspraak_id,
-adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, postcode van de gekoppelde afspraak (voor de
-kalender + informatieweergave in AgendaPicker).
+adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, postcode, agenda (afgeleid uit insteek_id/
+prodcat_id — hypotheek/vermogen/schade) van de gekoppelde afspraak (voor de kalender + informatieweergave
+in AgendaPicker).
 
 POST /api/wijzig_opslaan
 Body: { email, pincode, adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, run }
@@ -149,7 +151,8 @@ Server (zie docs/TODO.md) — tot die tijd geven deze endpoints een databasefout
 
 Nieuwe environment variable:
 - AGENDAPICKER_BASE_URL (optioneel, default
-  https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net — basis-URL voor de link in de pincode-mail)
+  https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net — basis-URL voor de "Afspraak
+  wijzigen"-link in de afspraak-bevestigingsmail hieronder; de pincode-mail zelf bevat geen link meer)
 
 ---
 
