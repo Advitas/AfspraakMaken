@@ -1315,11 +1315,11 @@ def _call_sp_valideer_wijzig_pincode(cursor, email: str, pincode: str) -> dict:
     return {}
 
 
-# TIJDELIJK (aangevraagd 2026-09-03, zie docs/DECISIONS.md): pincode-mails gaan tijdens het testen
-# van deze feature altijd naar dit adres, ongeacht het opgegeven klant-e-mailadres. Verwijderen
-# (of leeg laten via env var WIJZIG_MAIL_OVERRIDE_TO) zodra er weer naar echte klant-e-mailadressen
-# gemaild moet worden — zie docs/TODO.md.
-WIJZIG_MAIL_OVERRIDE_TO_DEFAULT = "rvader@advitas.nl"
+# Testmail-omleiding voor de pincode-/bevestigingsmail (aangevraagd 2026-09-03, uitgezet 2026-09-07,
+# zie docs/DECISIONS.md). Default staat weer leeg: mails gaan dus weer naar het echte
+# klant-e-mailadres. Kan nog steeds tijdelijk aangezet worden voor testen via de env var
+# WIJZIG_MAIL_OVERRIDE_TO, zonder een code-wijziging.
+WIJZIG_MAIL_OVERRIDE_TO_DEFAULT = ""
 
 
 def _build_wijzig_email(

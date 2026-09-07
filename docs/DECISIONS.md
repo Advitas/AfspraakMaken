@@ -527,3 +527,25 @@ de tijdelijke 31-requests-aanpak) — zie AgendaPicker's `docs/DECISIONS.md`. Ge
 `_call_sp_dynamic` te mocken (geen echte DB-connectie nodig): correcte dag-range voor een gewone maand,
 de jaarwissel december→januari, en een schrikkeljaar (29 dagen in februari 2028). Vereist een nieuwe
 `function_app.py`-deploy — geen SQL-wijziging.
+
+---
+
+## 2026-09-07 — Testmail-omleiding naar rvader@advitas.nl uitgezet
+
+**Context:** de gebruiker vroeg (kort na een vraag over de reistijden-module, tussendoor): *"haal eerst
+even de technische info uit prod en ook het versturen naar rvader@advitas.nl"* — de wijzig-afspraak-flow
+is kennelijk klaar genoeg om de testscaffolding (mail-omleiding, technisch statuspaneel bij prod) weer
+af te bouwen.
+
+**Beslissing:** `WIJZIG_MAIL_OVERRIDE_TO_DEFAULT` in `function_app.py` is teruggezet van
+`"rvader@advitas.nl"` naar `""` (leeg). Zowel de pincode-mail (`_send_wijzig_email`) als de
+afspraak-bevestigingsmail (`_try_send_afspraak_bevestiging_email`) gebruiken dezelfde constante, dus
+beide gaan weer naar het echte klant-e-mailadres. Het env-var-mechanisme (`WIJZIG_MAIL_OVERRIDE_TO`)
+blijft ongewijzigd bestaan, zodat de omleiding zonder code-wijziging opnieuw tijdelijk aangezet kan
+worden als er nog een keer tegen productie getest moet worden.
+
+**Gevolgen:** vereist een nieuwe `function_app.py`-deploy. Vanaf die deploy ontvangen echte klanten
+weer daadwerkelijk de pincode-/bevestigingsmail op hun eigen adres — dus pas deployen als de rest van
+de wijzig-afspraak-flow (agenda-afleiding, postcode-uit-adres, doorgepland, geen pincode-check bij
+opslaan, MonthView-fix) ook klaar is om mee te gaan, anders krijgen klanten mails voor een half-werkende
+flow.

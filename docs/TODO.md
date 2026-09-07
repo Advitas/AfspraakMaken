@@ -48,11 +48,11 @@
     -H "Content-Type: application/json" \
     -d '{"email": "klant@voorbeeld.nl", "pincode": "123456", "adviseur_id": 42, "datum": "2026-09-10", "tijd": "14:30", "duur_kwartieren": 2, "vorm_afspraak": "online", "run": "test"}'
   ```
-- [ ] **TIJDELIJK, moet ongedaan gemaakt worden vóór een release naar echte klanten:** de pincode-mail
-  én de nieuwe afspraak-bevestigingsmail gaan momenteel altijd naar `rvader@advitas.nl` in plaats van
-  naar het opgegeven klant-e-mailadres (`WIJZIG_MAIL_OVERRIDE_TO_DEFAULT` in `function_app.py`, expliciet
-  aangevraagd 2026-09-03 voor testdoeleinden). Verwijder deze default (of zet env var
-  `WIJZIG_MAIL_OVERRIDE_TO` leeg) zodra er weer naar echte klant-e-mailadressen gemaild moet worden.
+- [x] **UITGEZET (2026-09-07):** de tijdelijke mail-omleiding naar `rvader@advitas.nl` (aangevraagd
+  2026-09-03 voor testdoeleinden) staat weer uit — `WIJZIG_MAIL_OVERRIDE_TO_DEFAULT` in
+  `function_app.py` is teruggezet naar `""`. Pincode-mail en afspraak-bevestigingsmail gaan dus weer
+  naar het echte klant-e-mailadres. Het mechanisme zelf (env var `WIJZIG_MAIL_OVERRIDE_TO`) blijft
+  bestaan voor eventueel toekomstig testen, zonder code-wijziging nodig.
 - [ ] **Nieuw, UIT by default:** `/afspraak` kan nu optioneel een bevestigingsmail met "Afspraak
   wijzigen"-knop naar de klant sturen (`_try_send_afspraak_bevestiging_email`), maar alleen als
   `AFSPRAAK_BEVESTIGING_MAIL_ENABLED=true` staat — standaard `false`, juist omdat `/afspraak` een
