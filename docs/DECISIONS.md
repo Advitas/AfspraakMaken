@@ -606,3 +606,37 @@ beide bestanden). Geen wijziging aan `function_app.py` nodig. Dit patroon (nesti
 transactiebeheer) is relevant voor elke toekomstige stored procedure die expliciete
 `BEGIN`/`COMMIT`/`ROLLBACK TRANSACTION` gebruikt én via een niet-autocommit pyodbc-connectie
 aangeroepen wordt — overweeg hetzelfde patroon toe te passen als een vergelijkbare fout elders opduikt.
+
+---
+
+## 2026-09-07 — Vervolgfout: "Uncommittable transaction" na de vorige transactiefix
+
+**Context:** direct na de vorige fix meldde de gebruiker een nieuwe, andere fout bij `/wijzig_opslaan`:
+*"Uncommittable transaction is detected at the end of the batch. The transaction is rolled back."*
+(SQL-foutcode 3998, niet 266). Analyse: `spWijzigAfspraakDatumTijd` heeft `SET XACT_ABORT ON` staan.
+Bij een échte runtime-fout in de `TRY`-blok (niet het gecontroleerde "afspraak niet gevonden"-pad, dat
+via een expliciete `RETURN` verloopt en geen `CATCH` triggert) rolt `XACT_ABORT ON` de transactie
+automatisch volledig terug en maakt 'm "doomed" (`XACT_STATE() = -1`) — ook wanneer
+`@ownsTransaction = 0` (de normale situatie, ambient transactie van de Python-caller). De vorige fix
+liet de `CATCH`-blok in dat geval `@foutmelding` zetten en de procedure normaal laten eindigen, maar
+dat vereist dat de aanroepende SQL-batch (`DECLARE ...; EXEC ...; SELECT @foutmelding;`) nog een
+statement kan uitvoeren ná de `EXEC` — en dat kan niet meer in een doomed transactie. Vandaar deze
+tweede, nog verwarrendere foutmelding, die de eigenlijke onderliggende fout compleet verborg.
+
+**Beslissing:** de `CATCH`-blok checkt nu `XACT_STATE()` i.p.v. alleen `@@TRANCOUNT`: bij
+`@ownsTransaction = 1` wordt nog steeds netjes `ROLLBACK TRANSACTION` gedaan (mits er nog een
+actieve/doomed transactie is, `XACT_STATE() <> 0`). Is de transactie doomed (`XACT_STATE() = -1`,
+ongeacht `@ownsTransaction`), dan wordt de oorspronkelijke fout meteen opnieuw opgegooid met `THROW`
+i.p.v. geprobeerd wordt netjes terug te keren — dit is het standaard T-SQL-patroon voor doomed
+transacties (zie Microsoft's eigen documentatie over `XACT_STATE()`/`TRY...CATCH`). `THROW` breekt de
+hele aanroepende SQL-batch direct af, wat in Python neerkomt op een `pyodbc.Error`-exception —
+`wijzig_opslaan`'s bestaande `except pyodbc.Error`-tak ving dat al correct af (`conn.rollback()` +
+`_extract_db_error_details(ex)`), dus daar was geen wijziging nodig.
+
+**Gevolgen:** vereist een nieuwe deploy van `sql/spWijzigAfspraakDatumTijd.sql` (en
+`sql/alles_in_1_wijzig_afspraak.sql`, weer gecontroleerd met `diff` op inhoudelijke gelijkheid). **Dit
+fixt de transactie-afhandeling, niet de onderliggende échte fout** die de `CATCH`-blok in de eerste
+plaats liet triggeren — die was tot nu toe onzichtbaar door dit bug-op-bug-effect (transactiefout
+verborg de eigenlijke SQL-fout, die op zijn beurt weer een tweede transactiefout veroorzaakte). Na deze
+deploy zou de eerstvolgende poging tot opslaan de daadwerkelijke onderliggende SQL-foutmelding moeten
+tonen in het technische statuspaneel, wat nodig is om de werkelijke oorzaak te vinden en op te lossen.

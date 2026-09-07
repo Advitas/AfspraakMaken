@@ -165,3 +165,17 @@
   ook kunnen optreden. Niet stilzwijgend meegefixt (buiten scope van het gerapporteerde incident) —
   overweeg hetzelfde `@ownsTransaction`-patroon toe te passen als hier ooit een vergelijkbare fout
   optreedt, of proactief bij een volgende SQL-deploy.
+- [x] **Vervolgfout na de vorige fix: "Uncommittable transaction" (SQL-foutcode 3998), gefixt
+  (2026-09-07):** na de `@ownsTransaction`-fix trad een nieuwe fout op bij een echte runtime-fout
+  (niet het "niet gevonden"-pad): `SET XACT_ABORT ON` maakt de transactie bij zo'n fout meestal
+  volledig "doomed" (`XACT_STATE() = -1`), ook bij `@ownsTransaction = 0` — de aanroepende batch kon
+  daardoor geen enkel statement meer uitvoeren (ook niet de `SELECT @foutmelding` erna), wat de
+  verwarrende "Uncommittable transaction is detected at the end of the batch"-fout gaf i.p.v. de
+  échte onderliggende oorzaak. Gefixt: de CATCH-blok checkt nu `XACT_STATE()` en doet `THROW` (de
+  oorspronkelijke fout opnieuw opgooien) zodra de transactie doomed is, i.p.v. te proberen netjes
+  `@foutmelding` te zetten en door te gaan. `function_app.py`'s bestaande `except pyodbc.Error`-tak
+  in `wijzig_opslaan` vangt dit al correct af (`conn.rollback()` + `_extract_db_error_details`) —
+  geen Python-wijziging nodig. **Let op:** dit fixt de transactie-afhandeling, niet de onderliggende
+  échte fout die de CATCH triggert — die was tot nu toe onzichtbaar door dit bug-op-bug-effect. Na
+  deze deploy zou de eerstvolgende poging de daadwerkelijke SQL-foutmelding moeten tonen, wat helpt om
+  de eigenlijke oorzaak te vinden.

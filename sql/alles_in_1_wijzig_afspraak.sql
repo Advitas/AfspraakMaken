@@ -515,8 +515,19 @@ BEGIN
       COMMIT TRANSACTION;
   END TRY
   BEGIN CATCH
-    IF @ownsTransaction = 1 AND @@TRANCOUNT > 0
+    -- SET XACT_ABORT ON zorgt dat een echte runtime-fout (niet het gecontroleerde "niet
+    -- gevonden"-pad hierboven) de transactie meestal volledig "doomed" maakt (XACT_STATE() = -1),
+    -- ook als @ownsTransaction = 0 (ambient transactie van de caller). In dat geval kan de caller's
+    -- batch geen enkel statement meer uitvoeren (ook niet de SELECT @foutmelding erna, wat eerder de
+    -- verwarrende "Uncommittable transaction is detected at the end of the batch"-fout gaf i.p.v. de
+    -- echte oorzaak) — dus dan meteen de oorspronkelijke fout doorgeven i.p.v. proberen netjes terug
+    -- te keren (bevestigd 2026-09-07).
+    IF @ownsTransaction = 1 AND XACT_STATE() <> 0
       ROLLBACK TRANSACTION;
+
+    IF XACT_STATE() = -1
+      THROW;
+
     SET @foutmelding = ERROR_MESSAGE();
   END CATCH
 END;
