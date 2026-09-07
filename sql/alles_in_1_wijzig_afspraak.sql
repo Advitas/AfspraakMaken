@@ -1,7 +1,12 @@
 /*
 =================================================================================================
  Wijzig-afspraak-flow: alle SQL in één bestand, in de juiste uitvoeringsvolgorde.
- Voorstel — NOG NIET UITGEVOERD tegen SQL_DATABASE_TEST of productie.
+
+ Idempotent — dit hele bestand kan zonder nadenken opnieuw (of voor het eerst) uitgevoerd worden,
+ ook als delen ervan al eerder gedraaid zijn: de tabel/indexen worden alleen aangemaakt als ze nog
+ niet bestaan (IF NOT EXISTS), de stored procedures gebruiken CREATE OR ALTER, en de GRANT-statements
+ zijn van zichzelf al veilig om te herhalen. Eén druk op de knop in SSMS (heel bestand selecteren en
+ uitvoeren) volstaat.
 
  Bevat, in volgorde:
    1) Tabel dbo.WijzigAfspraakPincodes         (sql/WijzigAfspraakPincodes_tabel.sql)
@@ -56,23 +61,42 @@
 -- 1) Tabel dbo.WijzigAfspraakPincodes
 -- Vervangt de Azure Table Storage-opslag van pincodes door een SQL-tabel — één actieve pincode
 -- per afspraak_id. Eigen tabel, eigen naamgeving (underscore) — sluit niet aan op [dbo].[Afspraak].
+-- Idempotent (IF NOT EXISTS) zodat dit hele bestand veilig herhaald uitgevoerd kan worden, ook als
+-- de tabel/indexen al bestaan van een vorige run.
 -- =================================================================================================
-CREATE TABLE [dbo].[WijzigAfspraakPincodes] (
-    [id]            INT IDENTITY(1,1) PRIMARY KEY,
-    [afspraak_id]   INT NOT NULL,
-    [email]         NVARCHAR(255) NOT NULL,
-    [pincode]       CHAR(6) NOT NULL,
-    [postcode]      NVARCHAR(10) NULL,
-    [attempts]      INT NOT NULL DEFAULT 0,
-    [aangemaakt_op] DATETIME2 NOT NULL,
-    [verloopt_op]   DATETIME2 NOT NULL
-);
+IF OBJECT_ID('[dbo].[WijzigAfspraakPincodes]', 'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[WijzigAfspraakPincodes] (
+        [id]            INT IDENTITY(1,1) PRIMARY KEY,
+        [afspraak_id]   INT NOT NULL,
+        [email]         NVARCHAR(255) NOT NULL,
+        [pincode]       CHAR(6) NOT NULL,
+        [postcode]      NVARCHAR(10) NULL,
+        [attempts]      INT NOT NULL DEFAULT 0,
+        [aangemaakt_op] DATETIME2 NOT NULL,
+        [verloopt_op]   DATETIME2 NOT NULL
+    );
+END
 GO
 
-CREATE INDEX [IX_WijzigAfspraakPincodes_email] ON [dbo].[WijzigAfspraakPincodes] ([email]);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_WijzigAfspraakPincodes_email'
+      AND object_id = OBJECT_ID('[dbo].[WijzigAfspraakPincodes]')
+)
+BEGIN
+    CREATE INDEX [IX_WijzigAfspraakPincodes_email] ON [dbo].[WijzigAfspraakPincodes] ([email]);
+END
 GO
 
-CREATE INDEX [IX_WijzigAfspraakPincodes_afspraak_id] ON [dbo].[WijzigAfspraakPincodes] ([afspraak_id]);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_WijzigAfspraakPincodes_afspraak_id'
+      AND object_id = OBJECT_ID('[dbo].[WijzigAfspraakPincodes]')
+)
+BEGIN
+    CREATE INDEX [IX_WijzigAfspraakPincodes_afspraak_id] ON [dbo].[WijzigAfspraakPincodes] ([afspraak_id]);
+END
 GO
 
 
@@ -475,6 +499,7 @@ GRANT EXECUTE ON [dbo].[spWijzigAfspraakDatumTijd] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[Klanten] TO [svc-AppMaakAfspraak];
 GRANT SELECT, UPDATE ON [dbo].[Afspraak] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[Status afspraak] TO [svc-AppMaakAfspraak];
+GRANT SELECT ON [dbo].[Adres] TO [svc-AppMaakAfspraak];
 GRANT INSERT ON [dbo].[actions] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[users] TO [svc-AppMaakAfspraak];
 GRANT DELETE ON [dbo].[WijzigAfspraakPincodes] TO [svc-AppMaakAfspraak];

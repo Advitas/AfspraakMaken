@@ -110,3 +110,13 @@
   (`sql/spZoekAfspraakVoorWijziging.sql`, `sql/spValideerWijzigPincode.sql`, ook bijgewerkt in
   `sql/alles_in_1_wijzig_afspraak.sql`) vóórdat buitendienst-afspraken via deze flow gewijzigd kunnen
   worden.
+- [x] **Alle SQL idempotent gemaakt, "zonder nadenken" te draaien (2026-09-07):** op verzoek van de
+  gebruiker (*"kan je alles sql zo maken dat ik die kan runnen zonder na e denken"*) is
+  `sql/alles_in_1_wijzig_afspraak.sql` (en de losse `sql/WijzigAfspraakPincodes_tabel.sql`) aangepast
+  zodat het hele bestand veilig herhaald uitgevoerd kan worden, ook na een eerdere (gedeeltelijke)
+  run: de `CREATE TABLE`/`CREATE INDEX`-statements zijn nu `IF NOT EXISTS`-gewrapt (voorheen gaf een
+  herhaalde run een "already exists"-fout op de tabel). De stored procedures gebruikten al
+  `CREATE OR ALTER` (was al idempotent). Bij deze gelegenheid ook een ontbrekende
+  `GRANT SELECT ON [dbo].[Adres]` toegevoegd (nodig sinds de postcode-uit-adres-wijziging hierboven,
+  was er nog niet) aan zowel het gecombineerde bestand als `sql/WijzigAfspraakPincodes_rechten.sql`
+  (dat laatste was sowieso stale t.o.v. het gecombineerde bestand — nu gelijkgetrokken).

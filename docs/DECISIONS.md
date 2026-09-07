@@ -422,3 +422,34 @@ buitendienst-afspraken via deze flow gewijzigd kunnen worden. **Niet geverifieer
 `adres_sleutel`/`Adres-id`/`PKD` komen alleen uit de tekst van de gebruiker, niet gecontroleerd tegen
 het echte schema (bijv. via `sp_help '[dbo].[Adres]'`) — bij een afwijkende naam geeft dit dezelfde
 "Invalid column name"-fout als eerdere schema-aannames in deze flow.
+
+---
+
+## 2026-09-07 — Alle wijzig-afspraak-SQL idempotent gemaakt
+
+**Context:** de gebruiker vroeg: *"kan je alles sql zo maken dat ik die kan runnen zonder na e
+denken"*. `sql/alles_in_1_wijzig_afspraak.sql` bevatte een plain `CREATE TABLE`/`CREATE INDEX` voor
+`[dbo].[WijzigAfspraakPincodes]` — die tabel staat inmiddels al op de database (zie de eerdere ADR
+"Alle wijzig-afspraak-SQL succesvol uitgevoerd"), dus een herhaalde run van het hele bestand (bijv. na
+een volgende SP-wijziging zoals de agenda- of postcode-aanpassing hierboven) zou daar meteen op
+stuklopen met een "already exists"-fout — de gebruiker zou dan zelf moeten weten welk deel van het
+bestand over te slaan. Bovendien bleek `sql/WijzigAfspraakPincodes_rechten.sql` (het losse
+rechten-bestand) stale te zijn geworden t.o.v. het GRANT-blok in het gecombineerde bestand (miste
+`spWijzigAfspraakDatumTijd`-EXECUTE, `Afspraak`-UPDATE, `actions`-INSERT, `users`-SELECT,
+`WijzigAfspraakPincodes`-DELETE), en beide misten de nieuw benodigde `GRANT SELECT` op `[dbo].[Adres]`
+(nodig sinds de postcode-uit-adres-wijziging, zie ADR hierboven).
+
+**Beslissing:** `CREATE TABLE`/`CREATE INDEX` in zowel `sql/alles_in_1_wijzig_afspraak.sql` als het
+losse `sql/WijzigAfspraakPincodes_tabel.sql` zijn gewrapt in `IF OBJECT_ID(...) IS NULL`/
+`IF NOT EXISTS (SELECT 1 FROM sys.indexes ...)`-checks. De stored procedures gebruikten al
+`CREATE OR ALTER` (waren al idempotent) en GRANT-statements zijn van zichzelf al veilig om te
+herhalen — daar was geen wijziging nodig. `sql/WijzigAfspraakPincodes_rechten.sql` is
+gelijkgetrokken met het GRANT-blok in het gecombineerde bestand (inclusief de nieuwe
+`GRANT SELECT ON [dbo].[Adres]`), en hetzelfde GRANT is ook toegevoegd aan
+`sql/alles_in_1_wijzig_afspraak.sql`.
+
+**Gevolgen:** `sql/alles_in_1_wijzig_afspraak.sql` kan nu in zijn geheel geselecteerd en uitgevoerd
+worden in SSMS, ongeacht of (delen van) het bestand al eerder gedraaid zijn — geen handmatige
+selectie van "welk stuk nog moet" meer nodig. Geverifieerd: de procedure-bodies in de losse bestanden
+en het gecombineerde bestand zijn met `diff` gecontroleerd en zijn byte-identiek; BEGIN/END-statements
+in het gecombineerde bestand zijn in balans (21/21).
