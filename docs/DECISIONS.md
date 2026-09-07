@@ -217,3 +217,27 @@ query-parameters (die kwamen uit de aanroeper, nu uit de database). Er komen nu 
 `spWijzigAfspraakDatumTijd` (zie `docs/TODO.md`). De aanname over de Klanten-tabel (`dbo.Klanten`,
 kolommen `klant_id`/`email`) is niet bevestigd — AgendaPicker's eigen `server.js` detecteert dit
 schema juist dynamisch omdat het kan variëren.
+
+## 2026-09-03 — function_app.py bijgewerkt naar de e-mail-eerst-flow
+
+**Context:** vervolg op de vorige ADR — de SQL-laag (3 nieuwe SP's + tabel) was ontworpen, nu is de
+Python-kant (`function_app.py`) daadwerkelijk aangepast om die aan te roepen.
+
+**Beslissing:** de Azure Table Storage-helpers (`_bewaar_pincode_record`/`_haal_pincode_record`/
+`_verwijder_pincode_record`/`_verhoog_pincode_pogingen`/`_get_pincode_table_client`) en de
+`azure-data-tables`-dependency zijn volledig verwijderd, vervangen door `_call_sp_zoek_afspraak_voor_wijziging`/
+`_call_sp_bewaar_wijzig_pincode`/`_call_sp_valideer_wijzig_pincode`. `/wijzig-aanvraag` accepteert nu
+alleen `{ email, run }` — geen afspraak_id/adviseur_id/duur_kwartieren/vorm_afspraak/postcode meer van de
+aanroeper nodig, die komen nu uit `spZoekAfspraakVoorWijziging`. Wordt er geen afspraak gevonden: HTTP 404,
+geen mail verstuurd. `/wijzig-verificatie` en `/wijzig-opslaan` accepteren nu `email`+`pincode` i.p.v.
+`afspraak_id`+`pincode`; `/wijzig-opslaan` haalt `afspraak_id` server-side uit de pincode-validatie in
+plaats van een door de client meegestuurde waarde te vertrouwen — een extra beveiligingsverbetering
+bovenop het email-eerst-principe zelf. De afspraak-bevestigingsmail's "Afspraak wijzigen"-knop
+(`_build_afspraak_bevestiging_email`) is vereenvoudigd: linkt nu naar `wijzig-afspraak.html?email=...`
+(alleen ter voorinvulling) in plaats van de oude `autostart=1`-link met alle losse parameters.
+
+**Gevolgen:** de code is syntactisch geverifieerd maar nog niet live getest (vereist de 4 nieuwe SP's +
+tabel + een lokale `local.settings.json`, zie `docs/TODO.md` voor de bijgewerkte curl-voorbeelden).
+AgendaPicker's `wijzig-afspraak.html`/`.js` en de proxy-routes in `server.js` moeten nog aangepast worden
+aan dit nieuwe contract (autostart-mechanisme wordt vervangen door een echt e-mail-invoerscherm) — dat is
+de volgende stap.

@@ -26,6 +26,7 @@ CREATE OR ALTER PROCEDURE [dbo].[spValideerWijzigPincode]
     @tijd             TIME OUTPUT,
     @duur_kwartieren  INT OUTPUT,
     @vorm_afspraak    NVARCHAR(20) OUTPUT,
+    @postcode         NVARCHAR(10) OUTPUT,
     @geldig           BIT OUTPUT,
     @foutmelding      NVARCHAR(200) OUTPUT
 AS
@@ -41,7 +42,8 @@ BEGIN
         @opgeslagen_pincode = [pincode],
         @verloopt_op = [verloopt_op],
         @attempts = [attempts],
-        @gekoppeld_afspraak_id = [afspraak_id]
+        @gekoppeld_afspraak_id = [afspraak_id],
+        @postcode = [postcode]
     FROM [dbo].[WijzigAfspraakPincodes]
     WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)))
     ORDER BY [aangemaakt_op] DESC;

@@ -13,6 +13,7 @@ CREATE OR ALTER PROCEDURE [dbo].[spBewaarWijzigPincode]
     @afspraak_id        INT,
     @email              NVARCHAR(255),
     @pincode            CHAR(6),
+    @postcode           NVARCHAR(10) = NULL,
     @geldigheid_minuten INT = 5
 AS
 BEGIN
@@ -25,9 +26,9 @@ BEGIN
         DELETE FROM [dbo].[WijzigAfspraakPincodes] WHERE [afspraak_id] = @afspraak_id;
 
         INSERT INTO [dbo].[WijzigAfspraakPincodes]
-            ([afspraak_id], [email], [pincode], [attempts], [aangemaakt_op], [verloopt_op])
+            ([afspraak_id], [email], [pincode], [postcode], [attempts], [aangemaakt_op], [verloopt_op])
         VALUES
-            (@afspraak_id, @email, @pincode, 0, SYSUTCDATETIME(), DATEADD(minute, @geldigheid_minuten, SYSUTCDATETIME()));
+            (@afspraak_id, @email, @pincode, @postcode, 0, SYSUTCDATETIME(), DATEADD(minute, @geldigheid_minuten, SYSUTCDATETIME()));
 
         COMMIT TRANSACTION;
     END TRY

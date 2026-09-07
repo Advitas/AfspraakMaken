@@ -23,12 +23,27 @@
   `SELECT` op `users`) — de GRANT-statements staan onderaan `sql/spWijzigAfspraakDatumTijd.sql`. Zelfde
   soort probleem als de buitendienst-500 uit `docs/DECISIONS.md` (2026-09-01) trad eerder al op zonder
   deze rechten.
-- [ ] Bevestigen dat `MANDRILL_API_KEY` en `AzureWebJobsStorage` correct in de Function App's App Settings
-  staan voor de nieuwe wijzig-pincode-mail en pincode-opslag.
+- [ ] Bevestigen dat `MANDRILL_API_KEY` correct in de Function App's App Settings staat voor de
+  wijzig-pincode-mail. `AzureWebJobsStorage` is sinds het herontwerp naar SQL-opslag niet meer relevant
+  voor deze feature (blijft uiteraard wel nodig voor de Function App zelf).
 - [ ] `/wijzig-aanvraag`, `/wijzig-verificatie`, `/wijzig-opslaan` zijn nog niet live getest tegen
-  `SQL_DATABASE_TEST`/een echte Storage Account (dit vereist een lokale `local.settings.json`, die niet in
-  deze sessie is aangemaakt) — zie `docs/superpowers/plans/2026-09-03-wijzig-afspraak-pincode.md` voor de
-  curl-commando's om dat handmatig te doen.
+  `SQL_DATABASE_TEST` (dit vereist zowel een lokale `local.settings.json`, die niet in deze sessie is
+  aangemaakt, als de 4 nieuwe SP's + tabel hierboven). **Let op:** de curl-voorbeelden in
+  `docs/superpowers/plans/2026-09-03-wijzig-afspraak-pincode.md` zijn verouderd (die gingen nog uit van
+  `afspraak_id` in de body) — gebruik in plaats daarvan:
+  ```bash
+  curl -X POST http://localhost:7071/api/wijzig-aanvraag \
+    -H "Content-Type: application/json" \
+    -d '{"email": "klant@voorbeeld.nl", "run": "test"}'
+
+  curl -X POST http://localhost:7071/api/wijzig-verificatie \
+    -H "Content-Type: application/json" \
+    -d '{"email": "klant@voorbeeld.nl", "pincode": "123456", "run": "test"}'
+
+  curl -X POST http://localhost:7071/api/wijzig-opslaan \
+    -H "Content-Type: application/json" \
+    -d '{"email": "klant@voorbeeld.nl", "pincode": "123456", "adviseur_id": 42, "datum": "2026-09-10", "tijd": "14:30", "duur_kwartieren": 2, "vorm_afspraak": "online", "run": "test"}'
+  ```
 - [ ] **TIJDELIJK, moet ongedaan gemaakt worden vóór een release naar echte klanten:** de pincode-mail
   én de nieuwe afspraak-bevestigingsmail gaan momenteel altijd naar `rvader@advitas.nl` in plaats van
   naar het opgegeven klant-e-mailadres (`WIJZIG_MAIL_OVERRIDE_TO_DEFAULT` in `function_app.py`, expliciet
@@ -57,8 +72,9 @@
   kolommen `[klant_id]`/`[email]` — AgendaPicker's eigen code (`server.js`, `getKlantenTableInfo`)
   detecteert dit juist dynamisch omdat kolomnamen kunnen variëren (bijv. `e-mailadres`); deze nieuwe SP's
   gaan uit van vaste namen. Zie de aannames bovenaan `sql/spZoekAfspraakVoorWijziging.sql`.
-- [ ] `_bewaar_pincode_record`/`_haal_pincode_record`/`_verwijder_pincode_record`/`_verhoog_pincode_pogingen`
-  (Azure Table Storage, `function_app.py`) en de `azure-data-tables`-dependency moeten vervangen worden
-  door aanroepen naar de nieuwe SP's hierboven — nog te doen (zie ADR in `docs/DECISIONS.md`).
-  `/wijzig-aanvraag` en `/wijzig-verificatie` accepteren straks `email` i.p.v. `afspraak_id` als
-  belangrijkste input.
+- [x] `function_app.py` is bijgewerkt: de Azure Table Storage-helpers en de `azure-data-tables`-dependency
+  zijn vervangen door `_call_sp_zoek_afspraak_voor_wijziging`/`_call_sp_bewaar_wijzig_pincode`/
+  `_call_sp_valideer_wijzig_pincode`. `/wijzig-aanvraag` en `/wijzig-verificatie`/`/wijzig-opslaan`
+  accepteren nu `email` i.p.v. `afspraak_id` als belangrijkste input (`afspraak_id` wordt server-side uit
+  de gevalideerde pincode gehaald, nooit meer van de client vertrouwd). **Nog niet live getest** — wacht op
+  uitvoering van de 4 nieuwe SP's + tabel (zie hierboven).

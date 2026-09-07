@@ -4,14 +4,12 @@ import logging
 import os
 import re
 import secrets
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, time
 from urllib.parse import urlencode
 
 import azure.functions as func
 import pyodbc
 import requests
-from azure.core.exceptions import ResourceNotFoundError
-from azure.data.tables import TableServiceClient, UpdateMode
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
@@ -450,24 +448,15 @@ def _build_afspraak_bevestiging_email(data: dict, sp_output: dict, run_value) ->
     )
 
     wijzig_knop = ""
-    if afspraak_id not in (None, "") and data.get("adviseur_ids") and data.get("email"):
+    if afspraak_id not in (None, "") and data.get("email"):
         agendapicker_base = os.getenv(
             "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net"
         ).rstrip("/")
 
-        query_params = {
-            "afspraak_id": afspraak_id,
-            "autostart": "1",
-            "email": data["email"],
-            "adviseur_id": data["adviseur_ids"][0],
-            "duur_kwartieren": data["duur_kwartieren"],
-            "vorm_afspraak": vorm_afspraak,
-            "run": run_value or "",
-        }
-        if vorm_afspraak == "buitendienst" and data.get("postcode"):
-            query_params["postcode"] = data["postcode"]
-
-        wijzig_link_url = f"{agendapicker_base}/wijzig-afspraak.html?{urlencode(query_params)}"
+        # De wijzig-flow start met een e-mail-uitvraag op de pagina zelf (niet meer met een link die
+        # alle gegevens al meegeeft) — de link hieronder vult alleen het e-mailveld voor, ter
+        # gemak; het systeem zoekt de bijbehorende afspraak zelf op via spZoekAfspraakVoorWijziging.
+        wijzig_link_url = f"{agendapicker_base}/wijzig-afspraak.html?{urlencode({'email': data['email']})}"
         wijzig_knop = (
             '<p style="margin-top:16px;">'
             f'<a href="{html.escape(wijzig_link_url, quote=True)}" style="background-color:#1a3c6e;'
@@ -1174,90 +1163,89 @@ def afspraak(req: func.HttpRequest) -> func.HttpResponse:
             conn.close()
 
 
-PINCODE_TABLE_NAME = "WijzigAfspraakPincodes"
-PINCODE_GELDIGHEID_MINUTEN = 5
-PINCODE_MAX_POGINGEN = 5
-PINCODE_GENERIEKE_FOUTMELDING = "Ongeldige of verlopen pincode."
+WIJZIG_PINCODE_GENERIEKE_FOUTMELDING = "Ongeldige of verlopen pincode."
+_EMAIL_PATROON = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$")
 
 
 def _genereer_pincode() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
-def _get_pincode_table_client():
-    conn_str = _require_any_env("AzureWebJobsStorage")
-    service = TableServiceClient.from_connection_string(conn_str)
-    return service.create_table_if_not_exists(PINCODE_TABLE_NAME)
+def _call_sp_zoek_afspraak_voor_wijziging(cursor, email: str) -> dict:
+    cursor.execute(
+        """
+        DECLARE @afspraak_id INT, @adviseur_id INT, @datum DATE, @tijd TIME,
+                @duur_kwartieren INT, @vorm_afspraak NVARCHAR(20), @postcode NVARCHAR(10), @gevonden BIT;
+
+        EXEC [dbo].[spZoekAfspraakVoorWijziging]
+            @email = ?,
+            @afspraak_id = @afspraak_id OUTPUT,
+            @adviseur_id = @adviseur_id OUTPUT,
+            @datum = @datum OUTPUT,
+            @tijd = @tijd OUTPUT,
+            @duur_kwartieren = @duur_kwartieren OUTPUT,
+            @vorm_afspraak = @vorm_afspraak OUTPUT,
+            @postcode = @postcode OUTPUT,
+            @gevonden = @gevonden OUTPUT;
+
+        SELECT @afspraak_id AS afspraak_id, @adviseur_id AS adviseur_id, @datum AS datum, @tijd AS tijd,
+               @duur_kwartieren AS duur_kwartieren, @vorm_afspraak AS vorm_afspraak, @postcode AS postcode,
+               @gevonden AS gevonden;
+        """,
+        email,
+    )
+    result_sets = _read_all_result_sets(cursor)
+    if result_sets and result_sets[-1]:
+        return result_sets[-1][0]
+    return {}
 
 
-def _bewaar_pincode_record(
-    afspraak_id, pincode: str, adviseur_id, duur_kwartieren: int, vorm_afspraak: str, postcode, run_value
-) -> None:
-    verloopt_op = datetime.now(timezone.utc) + timedelta(minutes=PINCODE_GELDIGHEID_MINUTEN)
-    entity = {
-        "PartitionKey": str(afspraak_id),
-        "RowKey": "pincode",
-        "Pincode": pincode,
-        "VerlooptOp": verloopt_op.isoformat(),
-        "Attempts": 0,
-        "AdviseurId": str(adviseur_id),
-        "DuurKwartieren": int(duur_kwartieren),
-        "VormAfspraak": vorm_afspraak,
-        "Postcode": str(postcode) if postcode not in (None, "") else "",
-        "Run": str(run_value) if run_value not in (None, "") else "",
-    }
-    table_client = _get_pincode_table_client()
-    table_client.upsert_entity(entity, mode=UpdateMode.REPLACE)
-
-
-def _haal_pincode_record(afspraak_id):
-    table_client = _get_pincode_table_client()
-    try:
-        return table_client.get_entity(partition_key=str(afspraak_id), row_key="pincode")
-    except ResourceNotFoundError:
-        return None
-
-
-def _verwijder_pincode_record(afspraak_id) -> None:
-    table_client = _get_pincode_table_client()
-    try:
-        table_client.delete_entity(partition_key=str(afspraak_id), row_key="pincode")
-    except ResourceNotFoundError:
-        pass
-
-
-def _verhoog_pincode_pogingen(afspraak_id, record) -> None:
-    nieuwe_pogingen = int(record.get("Attempts", 0)) + 1
-    if nieuwe_pogingen >= PINCODE_MAX_POGINGEN:
-        _verwijder_pincode_record(afspraak_id)
-        return
-
-    table_client = _get_pincode_table_client()
-    table_client.update_entity(
-        {"PartitionKey": str(afspraak_id), "RowKey": "pincode", "Attempts": nieuwe_pogingen},
-        mode=UpdateMode.MERGE,
+def _call_sp_bewaar_wijzig_pincode(cursor, afspraak_id, email: str, pincode: str, postcode) -> None:
+    cursor.execute(
+        """
+        EXEC [dbo].[spBewaarWijzigPincode]
+            @afspraak_id = ?,
+            @email = ?,
+            @pincode = ?,
+            @postcode = ?;
+        """,
+        afspraak_id,
+        email,
+        pincode,
+        postcode,
     )
 
 
-def _valideer_pincode(afspraak_id, ingevoerde_pincode) -> dict:
-    record = _haal_pincode_record(afspraak_id)
-    if record is None:
-        raise ValidationError(PINCODE_GENERIEKE_FOUTMELDING)
+def _call_sp_valideer_wijzig_pincode(cursor, email: str, pincode: str) -> dict:
+    cursor.execute(
+        """
+        DECLARE @afspraak_id INT, @adviseur_id INT, @datum DATE, @tijd TIME, @duur_kwartieren INT,
+                @vorm_afspraak NVARCHAR(20), @postcode NVARCHAR(10), @geldig BIT, @foutmelding NVARCHAR(200);
 
-    verloopt_op = datetime.fromisoformat(str(record.get("VerlooptOp")))
-    if datetime.now(timezone.utc) >= verloopt_op:
-        _verwijder_pincode_record(afspraak_id)
-        raise ValidationError(PINCODE_GENERIEKE_FOUTMELDING)
+        EXEC [dbo].[spValideerWijzigPincode]
+            @email = ?,
+            @pincode = ?,
+            @afspraak_id = @afspraak_id OUTPUT,
+            @adviseur_id = @adviseur_id OUTPUT,
+            @datum = @datum OUTPUT,
+            @tijd = @tijd OUTPUT,
+            @duur_kwartieren = @duur_kwartieren OUTPUT,
+            @vorm_afspraak = @vorm_afspraak OUTPUT,
+            @postcode = @postcode OUTPUT,
+            @geldig = @geldig OUTPUT,
+            @foutmelding = @foutmelding OUTPUT;
 
-    if int(record.get("Attempts", 0)) >= PINCODE_MAX_POGINGEN:
-        _verwijder_pincode_record(afspraak_id)
-        raise ValidationError(PINCODE_GENERIEKE_FOUTMELDING)
-
-    if str(record.get("Pincode")) != str(ingevoerde_pincode).strip():
-        _verhoog_pincode_pogingen(afspraak_id, record)
-        raise ValidationError(PINCODE_GENERIEKE_FOUTMELDING)
-
-    return record
+        SELECT @afspraak_id AS afspraak_id, @adviseur_id AS adviseur_id, @datum AS datum, @tijd AS tijd,
+               @duur_kwartieren AS duur_kwartieren, @vorm_afspraak AS vorm_afspraak, @postcode AS postcode,
+               @geldig AS geldig, @foutmelding AS foutmelding;
+        """,
+        email,
+        pincode,
+    )
+    result_sets = _read_all_result_sets(cursor)
+    if result_sets and result_sets[-1]:
+        return result_sets[-1][0]
+    return {}
 
 
 # TIJDELIJK (aangevraagd 2026-09-03, zie docs/DECISIONS.md): pincode-mails gaan tijdens het testen
@@ -1268,7 +1256,7 @@ WIJZIG_MAIL_OVERRIDE_TO_DEFAULT = "rvader@advitas.nl"
 
 
 def _build_wijzig_email(
-    afspraak_id, pincode: str, run_value, oorspronkelijk_email: str | None = None
+    pincode: str, email: str, run_value, oorspronkelijk_email: str | None = None
 ) -> tuple[str, str]:
     is_prod = str(run_value).strip().lower() == "prod"
     subject_prefix = "" if is_prod else "[TEST] "
@@ -1277,7 +1265,7 @@ def _build_wijzig_email(
     agendapicker_base = os.getenv(
         "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net"
     ).rstrip("/")
-    link_url = f"{agendapicker_base}/wijzig-afspraak.html?afspraak_id={html.escape(str(afspraak_id), quote=True)}"
+    link_url = f"{agendapicker_base}/wijzig-afspraak.html?{urlencode({'email': email})}"
 
     test_banner = (
         ""
@@ -1321,12 +1309,12 @@ def _build_wijzig_email(
     return subject, html_body
 
 
-def _send_wijzig_email(afspraak_id, email: str, pincode: str, run_value) -> None:
+def _send_wijzig_email(email: str, pincode: str, run_value) -> None:
     override_to = os.getenv("WIJZIG_MAIL_OVERRIDE_TO", WIJZIG_MAIL_OVERRIDE_TO_DEFAULT).strip()
     verzend_naar = override_to or email
     oorspronkelijk_email = email if (override_to and override_to.lower() != email.lower()) else None
 
-    subject, html_body = _build_wijzig_email(afspraak_id, pincode, run_value, oorspronkelijk_email)
+    subject, html_body = _build_wijzig_email(pincode, email, run_value, oorspronkelijk_email)
     api_key = _require_any_env("MANDRILL_API_KEY")
 
     response = requests.post(
@@ -1360,44 +1348,20 @@ def _send_wijzig_email(afspraak_id, email: str, pincode: str, run_value) -> None
             raise RuntimeError(f"Mandrill wees de mail af: {result[0]}")
 
 
-def _try_send_wijzig_email(afspraak_id, email: str, pincode: str, run_value) -> None:
+def _try_send_wijzig_email(email: str, pincode: str, run_value) -> None:
     try:
-        _send_wijzig_email(afspraak_id, email, pincode, run_value)
+        _send_wijzig_email(email, pincode, run_value)
     except Exception:
         logging.exception("Fout bij versturen van wijzig-pincode-mail naar %s", email)
 
 
-_EMAIL_PATROON = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$")
-
-
 def _parse_wijzig_aanvraag_payload(payload: dict) -> dict:
-    afspraak_id = _require(payload.get("afspraak_id"), "afspraak_id")
     email = str(_require(payload.get("email"), "email")).strip()
     if not _EMAIL_PATROON.match(email):
         raise ValidationError("'email' moet een geldig e-mailadres zijn.")
 
-    adviseur_id = _require(payload.get("adviseur_id"), "adviseur_id")
-    duur_kwartieren = int(_require(payload.get("duur_kwartieren"), "duur_kwartieren"))
-    if duur_kwartieren < 1:
-        raise ValidationError("'duur_kwartieren' moet minimaal 1 zijn.")
-
-    vorm_afspraak = str(_require(payload.get("vorm_afspraak"), "vorm_afspraak")).strip().lower()
-    if vorm_afspraak not in {"online", "buitendienst"}:
-        raise ValidationError("'vorm_afspraak' moet 'online' of 'buitendienst' zijn.")
-
-    postcode = payload.get("postcode")
-    if vorm_afspraak == "buitendienst" and not re.fullmatch(r"\d{4}", str(postcode or "")):
-        raise ValidationError(
-            "'postcode' is verplicht en moet uit exact 4 cijfers bestaan bij vorm_afspraak 'buitendienst'."
-        )
-
     return {
-        "afspraak_id": afspraak_id,
         "email": email,
-        "adviseur_id": adviseur_id,
-        "duur_kwartieren": duur_kwartieren,
-        "vorm_afspraak": vorm_afspraak,
-        "postcode": postcode,
         "run": payload.get("run"),
     }
 
@@ -1424,32 +1388,62 @@ def wijzig_aanvraag(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="application/json",
         )
 
+    conn = None
+    cursor = None
+    pincode = None
     try:
+        conn = _get_connection(data["run"])
+        cursor = conn.cursor()
+
+        afspraak = _call_sp_zoek_afspraak_voor_wijziging(cursor, data["email"])
+
+        if not afspraak or not afspraak.get("gevonden"):
+            conn.rollback()
+            return func.HttpResponse(
+                json.dumps({"error": "Er is geen geldige afspraak gevonden voor dit e-mailadres."}),
+                status_code=404,
+                mimetype="application/json",
+            )
+
         pincode = _genereer_pincode()
-        _bewaar_pincode_record(
-            data["afspraak_id"],
-            pincode,
-            data["adviseur_id"],
-            data["duur_kwartieren"],
-            data["vorm_afspraak"],
-            data["postcode"],
-            data["run"],
+        _call_sp_bewaar_wijzig_pincode(
+            cursor, afspraak["afspraak_id"], data["email"], pincode, afspraak.get("postcode")
         )
+        conn.commit()
     except RuntimeError as ex:
         return func.HttpResponse(
             json.dumps({"error": str(ex)}),
             status_code=500,
             mimetype="application/json",
         )
-    except Exception:
-        logging.exception("Fout bij opslaan van pincode-record")
+    except pyodbc.Error as ex:
+        logging.exception("Databasefout bij zoeken/opslaan pincode voor wijziging")
+        if conn:
+            conn.rollback()
         return func.HttpResponse(
-            json.dumps({"error": "Interne fout bij opslaan van de pincode."}),
+            json.dumps(
+                {"error": "Databasefout bij verwerken van de aanvraag.", "details": _extract_db_error_details(ex)},
+                default=str,
+            ),
             status_code=500,
             mimetype="application/json",
         )
+    except Exception:
+        logging.exception("Fout bij verwerken van wijzig-aanvraag")
+        if conn:
+            conn.rollback()
+        return func.HttpResponse(
+            json.dumps({"error": "Interne fout bij verwerken van de aanvraag."}),
+            status_code=500,
+            mimetype="application/json",
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
-    _try_send_wijzig_email(data["afspraak_id"], data["email"], pincode, data["run"])
+    _try_send_wijzig_email(data["email"], pincode, data["run"])
 
     return func.HttpResponse(
         json.dumps({"result": "success"}),
@@ -1472,7 +1466,7 @@ def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     try:
-        afspraak_id = _require(payload.get("afspraak_id"), "afspraak_id")
+        email = str(_require(payload.get("email"), "email")).strip()
         pincode = _require(payload.get("pincode"), "pincode")
     except (ValidationError, ValueError) as ex:
         return func.HttpResponse(
@@ -1481,19 +1475,45 @@ def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="application/json",
         )
 
+    conn = None
+    cursor = None
     try:
-        record = _valideer_pincode(afspraak_id, pincode)
-    except ValidationError as ex:
+        conn = _get_connection(payload.get("run") if isinstance(payload, dict) else None)
+        cursor = conn.cursor()
+        resultaat = _call_sp_valideer_wijzig_pincode(cursor, email, pincode)
+        conn.commit()
+    except pyodbc.Error as ex:
+        logging.exception("Databasefout bij verifiëren van pincode")
+        if conn:
+            conn.rollback()
         return func.HttpResponse(
-            json.dumps({"error": str(ex)}),
-            status_code=400,
+            json.dumps(
+                {"error": "Databasefout bij verifiëren van de pincode.", "details": _extract_db_error_details(ex)},
+                default=str,
+            ),
+            status_code=500,
             mimetype="application/json",
         )
     except Exception:
         logging.exception("Fout bij verifiëren van pincode")
+        if conn:
+            conn.rollback()
         return func.HttpResponse(
             json.dumps({"error": "Interne fout bij verifiëren van de pincode."}),
             status_code=500,
+            mimetype="application/json",
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+    if not resultaat or not resultaat.get("geldig"):
+        foutmelding = (resultaat or {}).get("foutmelding") or WIJZIG_PINCODE_GENERIEKE_FOUTMELDING
+        return func.HttpResponse(
+            json.dumps({"error": foutmelding}),
+            status_code=400,
             mimetype="application/json",
         )
 
@@ -1501,11 +1521,13 @@ def wijzig_verificatie(req: func.HttpRequest) -> func.HttpResponse:
         json.dumps(
             {
                 "result": "success",
-                "adviseur_id": record.get("AdviseurId"),
-                "duur_kwartieren": record.get("DuurKwartieren"),
-                "vorm_afspraak": record.get("VormAfspraak"),
-                "postcode": record.get("Postcode") or None,
-                "run": record.get("Run") or None,
+                "afspraak_id": resultaat.get("afspraak_id"),
+                "adviseur_id": resultaat.get("adviseur_id"),
+                "datum": resultaat.get("datum"),
+                "tijd": resultaat.get("tijd"),
+                "duur_kwartieren": resultaat.get("duur_kwartieren"),
+                "vorm_afspraak": resultaat.get("vorm_afspraak"),
+                "postcode": resultaat.get("postcode"),
             },
             default=str,
         ),
@@ -1548,7 +1570,7 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
 
 
 def _parse_wijzig_opslaan_payload(payload: dict) -> dict:
-    afspraak_id = _require(payload.get("afspraak_id"), "afspraak_id")
+    email = str(_require(payload.get("email"), "email")).strip()
     pincode = _require(payload.get("pincode"), "pincode")
     adviseur_id = int(_require(payload.get("adviseur_id"), "adviseur_id"))
 
@@ -1571,7 +1593,7 @@ def _parse_wijzig_opslaan_payload(payload: dict) -> dict:
         raise ValidationError("'vorm_afspraak' moet 'online' of 'buitendienst' zijn.")
 
     return {
-        "afspraak_id": afspraak_id,
+        "email": email,
         "pincode": pincode,
         "adviseur_id": adviseur_id,
         "datum": datum,
@@ -1604,22 +1626,35 @@ def wijzig_opslaan(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="application/json",
         )
 
-    try:
-        _valideer_pincode(data["afspraak_id"], data["pincode"])
-    except ValidationError as ex:
-        return func.HttpResponse(
-            json.dumps({"error": str(ex)}),
-            status_code=400,
-            mimetype="application/json",
-        )
-
     conn = None
     cursor = None
     try:
         conn = _get_connection(data["run"])
         cursor = conn.cursor()
 
-        sp_result = _call_sp_wijzig_afspraak(cursor, data)
+        validatie = _call_sp_valideer_wijzig_pincode(cursor, data["email"], data["pincode"])
+
+        if not validatie or not validatie.get("geldig"):
+            conn.rollback()
+            foutmelding = (validatie or {}).get("foutmelding") or WIJZIG_PINCODE_GENERIEKE_FOUTMELDING
+            return func.HttpResponse(
+                json.dumps({"error": foutmelding}),
+                status_code=400,
+                mimetype="application/json",
+            )
+
+        # afspraak_id komt server-side uit de gevalideerde pincode, nooit rechtstreeks van de client
+        # vertrouwd — voorkomt dat iemand een andere afspraak_id dan waar de pincode bij hoort meestuurt.
+        sp_data = {
+            "afspraak_id": validatie["afspraak_id"],
+            "adviseur_id": data["adviseur_id"],
+            "datum": data["datum"],
+            "tijd": data["tijd"],
+            "duur_kwartieren": data["duur_kwartieren"],
+            "vorm_afspraak": data["vorm_afspraak"],
+        }
+
+        sp_result = _call_sp_wijzig_afspraak(cursor, sp_data)
         foutmelding = sp_result["output"].get("foutmelding")
 
         if foutmelding:
@@ -1634,7 +1669,6 @@ def wijzig_opslaan(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         conn.commit()
-        _verwijder_pincode_record(data["afspraak_id"])
 
         return func.HttpResponse(
             json.dumps({"result": "success", "stored_procedure_output": sp_result["output"]}, default=str),

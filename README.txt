@@ -122,28 +122,31 @@ Zie USER_MANUAL.md
 
 ---
 
-Nieuwe endpoints: afspraak wijzigen via pincode
+Nieuwe endpoints: afspraak wijzigen via pincode (e-mail-eerst)
 
 POST /api/wijzig-aanvraag (of /wijzig-aanvraag als routePrefix leeg staat)
-Body: { afspraak_id, email, adviseur_id, duur_kwartieren, vorm_afspraak, postcode (verplicht bij
-vorm_afspraak=buitendienst), run }
-Gedrag: genereert een 6-cijferige pincode (5 min geldig, max 5 pogingen), slaat die tijdelijk op in Azure
-Table Storage, en mailt de pincode + een link naar de AgendaPicker-wijzigpagina naar `email`.
+Body: { email, run }
+Gedrag: zoekt via [dbo].[spZoekAfspraakVoorWijziging] de eerstvolgende toekomstige afspraak met status
+'Open' voor dit e-mailadres. Geen afspraak gevonden: HTTP 404, geen mail verstuurd (voorkomt dat je via
+deze route kunt achterhalen welke e-mailadressen wel/niet klant zijn). Wel gevonden: genereert een
+6-cijferige pincode (5 min geldig, max 5 pogingen — bewaakt in SQL, zie [dbo].[WijzigAfspraakPincodes]),
+slaat die op via [dbo].[spBewaarWijzigPincode], en mailt de pincode + een link naar de
+AgendaPicker-wijzigpagina (met `email` voorgevuld) naar dat e-mailadres.
 
 POST /api/wijzig-verificatie
-Body: { afspraak_id, pincode }
-Gedrag: controleert de pincode. Bij succes: retourneert adviseur_id, duur_kwartieren, vorm_afspraak,
-postcode, run uit het pincode-record (voor de kalender in AgendaPicker).
+Body: { email, pincode, run }
+Gedrag: controleert de pincode via [dbo].[spValideerWijzigPincode]. Bij succes: retourneert afspraak_id,
+adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, postcode van de gekoppelde afspraak (voor de
+kalender + informatieweergave in AgendaPicker).
 
 POST /api/wijzig-opslaan
-Body: { afspraak_id, pincode, adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, run }
-Gedrag: controleert de pincode opnieuw, roept [dbo].[spWijzigAfspraakDatumTijd] aan. Bij succes wordt het
-pincode-record verwijderd (one-time use). Let op: deze stored procedure bestaat nog niet in SQL Server
-(zie docs/TODO.md) — tot die tijd geeft dit endpoint een databasefout.
+Body: { email, pincode, adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, run }
+Gedrag: valideert de pincode opnieuw (afspraak_id komt server-side uit die validatie, nooit van de
+client), roept [dbo].[spWijzigAfspraakDatumTijd] aan. Die procedure ruimt de pincode zelf op bij succes
+(one-time use). Let op: deze stored procedure + de drie pincode-SP's hierboven bestaan nog niet in SQL
+Server (zie docs/TODO.md) — tot die tijd geven deze endpoints een databasefout.
 
 Nieuwe environment variable:
-- AzureWebJobsStorage (verplicht — standaard Azure Functions storage-connectie, gebruikt voor de
-  tijdelijke pincode-opslag)
 - AGENDAPICKER_BASE_URL (optioneel, default
   https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net — basis-URL voor de link in de pincode-mail)
 
@@ -153,7 +156,8 @@ Afspraak-bevestigingsmail naar de klant (UIT by default)
 
 /afspraak (POST) kan optioneel, na een succesvolle aanmaak, een bevestigingsmail naar de klant
 (`email`-veld uit de body) sturen met datum/tijd/vorm en een "Afspraak wijzigen"-knop die naar
-AgendaPicker's wijzig-afspraak.html?...&autostart=1 linkt (start automatisch een pincode-aanvraag).
+AgendaPicker's wijzig-afspraak.html?email=... linkt (vult alleen het e-mailveld voor; de klant moet zelf
+op "Versturen" klikken).
 
 Standaard UIT — /afspraak is een bestaand, al in productie actief endpoint; dit voorkomt dat er
 ongemerkt bevestigingsmails naar echte klanten gaan zodra deze wijziging gedeployed wordt.

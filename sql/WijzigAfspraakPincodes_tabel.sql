@@ -7,6 +7,7 @@ CREATE TABLE [dbo].[WijzigAfspraakPincodes] (
     [afspraak_id]   INT NOT NULL,
     [email]         NVARCHAR(255) NOT NULL,
     [pincode]       CHAR(6) NOT NULL,
+    [postcode]      NVARCHAR(10) NULL,
     [attempts]      INT NOT NULL DEFAULT 0,
     [aangemaakt_op] DATETIME2 NOT NULL,
     [verloopt_op]   DATETIME2 NOT NULL

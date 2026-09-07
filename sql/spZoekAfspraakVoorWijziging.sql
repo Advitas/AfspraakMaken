@@ -9,10 +9,12 @@ achterhalen welke e-mailadressen wel/niet een klant zijn).
 Aannames die geverifieerd moeten worden vóór uitvoering (zie ook sql/spWijzigAfspraakDatumTijd.sql voor
 de eerdere aannames over [dbo].[Afspraak]):
 1) De PK-kolom van [dbo].[Afspraak] heet [afspraak_id] (zelfde aanname als eerder, nog niet bevestigd).
-2) De Klanten-tabel heet [dbo].[Klanten] met kolommen [klant_id] en [email] — AgendaPicker's eigen code
-   (server.js, getKlantenTableInfo) detecteert dit juist DYNAMISCH omdat het schema kan variëren
-   (kolomnamen als 'e-mailadres'/'mailadres' worden daar ook geaccepteerd) — deze SP gaat uit van de
-   meest waarschijnlijke, vaste namen. Als dat niet klopt, moet de WHERE/JOIN hieronder aangepast worden.
+2) De Klanten-tabel heet [dbo].[Klanten] met kolommen [klant_id], [email] en [postcode] —
+   AgendaPicker's eigen code (server.js, getKlantenTableInfo) detecteert dit juist DYNAMISCH omdat het
+   schema kan variëren (kolomnamen als 'e-mailadres'/'mailadres'/'postalcode' worden daar ook
+   geaccepteerd) — deze SP gaat uit van de meest waarschijnlijke, vaste namen. Als dat niet klopt, moet
+   de WHERE/SELECT hieronder aangepast worden. @postcode is alleen relevant bij vorm_afspraak=buitendienst
+   (nodig voor de beschikbaarheids-kalender) en mag NULL zijn voor online-afspraken.
 3) '[afspraakstate-id]'/'[Status afspraak]'/'afspraakstate_label' = 'Open' zijn WEL bevestigd (rechtstreeks
    overgenomen uit [PowerBI].[usp_Reservering_OmzettenNaarAfspraak], aangeleverd 2026-09-03).
 4) "Eerstvolgende toekomstige afspraak" = kleinste datum_adviesgesprek >= vandaag met status Open. Bij
@@ -32,6 +34,7 @@ CREATE OR ALTER PROCEDURE [dbo].[spZoekAfspraakVoorWijziging]
     @tijd            TIME OUTPUT,
     @duur_kwartieren INT OUTPUT,
     @vorm_afspraak   NVARCHAR(20) OUTPUT,
+    @postcode        NVARCHAR(10) OUTPUT,
     @gevonden        BIT OUTPUT
 AS
 BEGIN
@@ -41,7 +44,7 @@ BEGIN
     DECLARE @klant_id INT;
     DECLARE @open_state_id INT;
 
-    SELECT TOP 1 @klant_id = [klant_id]
+    SELECT TOP 1 @klant_id = [klant_id], @postcode = [postcode]
     FROM [dbo].[Klanten]
     WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)));
 
