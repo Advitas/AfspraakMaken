@@ -158,6 +158,10 @@ BEGIN
       DATEADD(minute, DATEDIFF(minute, GETUTCDATE(), GETDATE()), SYSUTCDATETIME())
     );
 
+    -- Pincode is nu verbruikt (one-time use) — opruimen zodat 'ie niet herbruikt kan worden.
+    -- Zie sql/WijzigAfspraakPincodes_tabel.sql / sql/spBewaarWijzigPincode.sql / sql/spValideerWijzigPincode.sql.
+    DELETE FROM [dbo].[WijzigAfspraakPincodes] WHERE [afspraak_id] = @afspraak_id;
+
     COMMIT TRANSACTION;
   END TRY
   BEGIN CATCH
@@ -184,4 +188,5 @@ GRANT EXECUTE ON [dbo].[spWijzigAfspraakDatumTijd] TO [svc-AppMaakAfspraak];
 GRANT SELECT, UPDATE ON [dbo].[Afspraak] TO [svc-AppMaakAfspraak];
 GRANT INSERT ON [dbo].[actions] TO [svc-AppMaakAfspraak];
 GRANT SELECT ON [dbo].[users] TO [svc-AppMaakAfspraak];
+GRANT DELETE ON [dbo].[WijzigAfspraakPincodes] TO [svc-AppMaakAfspraak];
 GO

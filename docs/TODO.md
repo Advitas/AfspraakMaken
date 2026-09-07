@@ -42,3 +42,23 @@
   anders krijgen klanten een "Afspraak wijzigen"-knop die nog niet werkt.
 - [ ] `AFSPRAAK_BEVESTIGING_MAIL_ENABLED` toevoegen aan de App Settings (staat al met default `false`
   in `local.settings.json.example`).
+- [ ] **Herontwerp 2026-09-03: e-mail-eerst i.p.v. afspraak_id-in-link.** Op verzoek van de gebruiker start
+  de wijzig-flow nu met een e-mailadres (niet meer met `afspraak_id` uit een link) — de klant typt zijn
+  e-mailadres in, het systeem zoekt zelf de bijbehorende afspraak op. Dit vereist 3 NIEUWE stored
+  procedures (bovenop de al openstaande `spWijzigAfspraakDatumTijd`), plus een nieuwe SQL-tabel die de
+  eerdere Azure Table Storage-opslag vervangt:
+  - `sql/WijzigAfspraakPincodes_tabel.sql` — nieuwe tabel (vervangt Table Storage volledig)
+  - `sql/spZoekAfspraakVoorWijziging.sql` — e-mail → eerstvolgende toekomstige 'Open'-afspraak
+  - `sql/spBewaarWijzigPincode.sql` — pincode opslaan
+  - `sql/spValideerWijzigPincode.sql` — pincode valideren + afspraak-info teruggeven
+  - `sql/WijzigAfspraakPincodes_rechten.sql` — GRANT-statements voor `svc-AppMaakAfspraak`
+  Alle vier moeten (in volgorde: tabel → 3 SP's → rechten) uitgevoerd worden op `SQL_DATABASE_TEST`/
+  productie. **Belangrijke aanname, nog te verifiëren:** de Klanten-tabel heet `[dbo].[Klanten]` met
+  kolommen `[klant_id]`/`[email]` — AgendaPicker's eigen code (`server.js`, `getKlantenTableInfo`)
+  detecteert dit juist dynamisch omdat kolomnamen kunnen variëren (bijv. `e-mailadres`); deze nieuwe SP's
+  gaan uit van vaste namen. Zie de aannames bovenaan `sql/spZoekAfspraakVoorWijziging.sql`.
+- [ ] `_bewaar_pincode_record`/`_haal_pincode_record`/`_verwijder_pincode_record`/`_verhoog_pincode_pogingen`
+  (Azure Table Storage, `function_app.py`) en de `azure-data-tables`-dependency moeten vervangen worden
+  door aanroepen naar de nieuwe SP's hierboven — nog te doen (zie ADR in `docs/DECISIONS.md`).
+  `/wijzig-aanvraag` en `/wijzig-verificatie` accepteren straks `email` i.p.v. `afspraak_id` als
+  belangrijkste input.

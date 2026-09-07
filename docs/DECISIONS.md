@@ -189,3 +189,31 @@ zie eerdere ADR's) moet deze env var op `true` gezet worden — anders krijgen k
 een nog niet werkende flow leidt. De knop verschijnt alleen als er een `afspraak_id`, minstens één
 `adviseur_id` én een `email` bekend zijn; ontbreekt een van die, dan wordt de bevestigingsmail wel
 verstuurd (als er een e-mailadres is) maar zonder wijzig-knop.
+
+## 2026-09-03 — Herontwerp: wijzig-flow start met e-mailadres, pincode-opslag verhuist naar SQL
+
+**Context:** de tot dan toe gebouwde flow ging uit van een `afspraak_id` in de link (uit de
+bevestigingsmail) — de klant hoefde alleen een pincode in te vullen. De gebruiker wilde in plaats daarvan
+dat de klant zelf zijn e-mailadres invult op een neutraal startscherm, waarna het systeem zelf de
+bijbehorende afspraak opzoekt (en afwijst als er geen geldige afspraak is). Dit sluit meteen het
+beveiligingsgat dat de eerdere `autostart`-link had geïntroduceerd (iemand kon een willekeurige
+`afspraak_id` + eigen e-mailadres in de URL zetten en zo een pincode voor andermans afspraak krijgen) —
+met e-mail-eerst moet je eerst bewijzen dat je bij dat postvak kunt, ongeacht welk `afspraak_id` erbij
+hoort. Daarnaast wilde de gebruiker de pincode-opslag in een SQL-tabel i.p.v. Azure Table Storage.
+
+**Beslissing:** drie nieuwe stored procedures (`spZoekAfspraakVoorWijziging`, `spBewaarWijzigPincode`,
+`spValideerWijzigPincode`) + een nieuwe tabel `dbo.WijzigAfspraakPincodes` vervangen de Azure Table
+Storage-opslag volledig (zie `sql/`). `spZoekAfspraakVoorWijziging` zoekt via een (aangenomen) `Klanten`-
+tabel naar de klant bij een e-mailadres, en pakt diens eerstvolgende toekomstige afspraak met status
+'Open' — wordt die niet gevonden, dan wordt er bewust geen pincode gegenereerd/verstuurd (zelfde
+informatie-lek-preventie als bij pincode-verificatie: niet laten zien of een e-mailadres wel/niet bekend
+is). `spWijzigAfspraakDatumTijd` is uitgebreid met een `DELETE` op de pincode-tabel na succesvolle
+opslag (one-time use), zodat Python dat niet los hoeft te doen.
+
+**Gevolgen:** dit vervangt het net gebouwde `autostart`-mechanisme (AgendaPicker ADR-003) grotendeels —
+een link hoeft alleen nog naar de wijzig-pagina te wijzen, zonder `afspraak_id`/`adviseur_id`/etc. als
+query-parameters (die kwamen uit de aanroeper, nu uit de database). Er komen nu in totaal **4 nieuwe SP's
++ 1 nieuwe tabel** te wachten op uitvoering tegen `SQL_DATABASE_TEST`/productie, bovenop de al bestaande
+`spWijzigAfspraakDatumTijd` (zie `docs/TODO.md`). De aanname over de Klanten-tabel (`dbo.Klanten`,
+kolommen `klant_id`/`email`) is niet bevestigd — AgendaPicker's eigen `server.js` detecteert dit
+schema juist dynamisch omdat het kan variëren.
