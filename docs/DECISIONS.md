@@ -241,3 +241,25 @@ tabel + een lokale `local.settings.json`, zie `docs/TODO.md` voor de bijgewerkte
 AgendaPicker's `wijzig-afspraak.html`/`.js` en de proxy-routes in `server.js` moeten nog aangepast worden
 aan dit nieuwe contract (autostart-mechanisme wordt vervangen door een echt e-mail-invoerscherm) — dat is
 de volgende stap.
+
+## 2026-09-03 — [dbo].[Afspraak]'s PK-kolom bevestigd als [afspraak-id] (met koppelteken)
+
+**Context:** alle SQL-voorstellen tot nu toe namen aan dat de PK-kolom van `[dbo].[Afspraak]`
+`[afspraak_id]` (underscore) heette — expliciet gemarkeerd als onbevestigde aanname, omdat het
+aangeleverde `usp_Reservering_OmzettenNaarAfspraak`-script geen directe lookup op die kolom deed (alleen
+een `INSERT` + `SCOPE_IDENTITY()`). De gebruiker bevestigde dat de kolom `[afspraak-id]` heet, **met
+koppelteken** — consistent met het al zichtbare patroon `[afspraakstate-id]`/`[insteek-id]`/`[prodcat-id]`
+in datzelfde script.
+
+**Beslissing:** alle `WHERE`/`SELECT`-referenties naar `[dbo].[Afspraak]`'s PK in
+`sql/spZoekAfspraakVoorWijziging.sql`, `sql/spValideerWijzigPincode.sql`, `sql/spWijzigAfspraakDatumTijd.sql`
+en `sql/alles_in_1_wijzig_afspraak.sql` zijn aangepast naar `[afspraak-id]`. Expliciet **niet** gewijzigd:
+(1) de `@afspraak_id`-parameternamen van onze eigen SP's (ons eigen contract, geen bestaande kolom); (2)
+`[dbo].[actions].[afspraak_id]` (die tabel gebruikt bevestigd wél underscore, letterlijk zo aangeleverd in
+het originele script); (3) `[dbo].[WijzigAfspraakPincodes].[afspraak_id]` (onze eigen nieuwe tabel, eigen
+naamgevingsconventie, sluit niet aan op een bestaand schema).
+
+**Gevolgen:** dit lost aanname #1 uit alle eerdere ADR's/TODO-items op — de belangrijkste onzekerheid in
+`spWijzigAfspraakDatumTijd`/`spZoekAfspraakVoorWijziging`/`spValideerWijzigPincode` is nu weggenomen. De
+resterende aannames (Klanten-tabelschema, vorm_afspraak-schrijfwijze 'Buitendienst', dbo.users-PK, NULL-
+gezette actions-kolommen) staan nog open, zie `docs/TODO.md`.

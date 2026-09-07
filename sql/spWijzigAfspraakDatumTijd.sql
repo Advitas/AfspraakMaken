@@ -6,7 +6,10 @@ Gebaseerd op het schema van [dbo].[Afspraak] zoals zichtbaar in
 (action_type_id = PLANNING_MOVE_ACTION_TYPE_ID, state_id = 35, source = 'Manual (Swap)', enz.).
 
 Aannames die geverifieerd moeten worden vóór uitvoering (zie comments hieronder):
-1) De PK/identity-kolom van [dbo].[Afspraak] heet [afspraak_id].
+1) De PK/identity-kolom van [dbo].[Afspraak] heet [afspraak-id] (met koppelteken, bevestigd
+   2026-09-03 — zelfde patroon als [afspraakstate-id]/[insteek-id]/[prodcat-id]). Let op: de
+   [dbo].[actions]-tabel gebruikt wél [afspraak_id] met underscore (zo aangeleverd in
+   usp_Reservering_OmzettenNaarAfspraak) — dit is dus per tabel verschillend, niet consistent.
 2) [vorm_afspraak] gebruikt de schrijfwijzen 'Online' / 'Buitendienst' (Titel-case) —
    alleen 'Online' is bevestigd (hardcoded in usp_Reservering_OmzettenNaarAfspraak);
    'Buitendienst' is een aanname naar analogie.
@@ -60,7 +63,7 @@ BEGIN
 
     SELECT @saleOpportunityId = [saleop_id]
     FROM [dbo].[Afspraak]
-    WHERE [afspraak_id] = @afspraak_id;
+    WHERE [afspraak-id] = @afspraak_id;
 
     IF @@ROWCOUNT = 0
     BEGIN
@@ -77,7 +80,7 @@ BEGIN
       [duur] = @duur_kwartieren,
       [vorm_afspraak] = @vormAfspraakGenormaliseerd,
       [updated_at] = GETDATE()
-    WHERE [afspraak_id] = @afspraak_id;
+    WHERE [afspraak-id] = @afspraak_id;
 
     -- Actions-log voor de wijziging. Deze SP wordt aangeroepen door de AfspraakMaken Azure
     -- Function (function-key-auth, geen ingelogde gebruiker) — er is dus nooit een "ingelogde

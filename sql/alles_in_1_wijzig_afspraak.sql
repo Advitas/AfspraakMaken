@@ -15,7 +15,11 @@
  gemak om alles in één keer in SSMS te kunnen doorlopen/uitvoeren.
 
  BELANGRIJKSTE AANNAMES DIE NOG GEVERIFIEERD MOETEN WORDEN (zie ook de losse bestanden):
-   1) De PK/identity-kolom van [dbo].[Afspraak] heet [afspraak_id].
+   1) [dbo].[Afspraak]'s PK-kolom heet [afspraak-id] MET KOPPELTEKEN (bevestigd 2026-09-03 — zelfde
+      patroon als [afspraakstate-id]/[insteek-id]/[prodcat-id]). Let op: [dbo].[actions] gebruikt
+      wél [afspraak_id] met underscore (zo aangeleverd in usp_Reservering_OmzettenNaarAfspraak) —
+      dit verschilt dus per tabel. Onze eigen nieuwe tabel [dbo].[WijzigAfspraakPincodes] gebruikt
+      bewust ook underscore (eigen naamgevingsconventie, geen bestaand schema om aan te sluiten).
    2) [dbo].[Afspraak].[vorm_afspraak] gebruikt de schrijfwijzen 'Online' / 'Buitendienst'
       (Titel-case) — alleen 'Online' is bevestigd, 'Buitendienst' is een aanname naar analogie.
    3) [dbo].[Klanten] bestaat met kolommen [klant_id], [email] en [postcode] — AgendaPicker's
@@ -39,7 +43,7 @@
 -- =================================================================================================
 -- 1) Tabel dbo.WijzigAfspraakPincodes
 -- Vervangt de Azure Table Storage-opslag van pincodes door een SQL-tabel — één actieve pincode
--- per afspraak_id.
+-- per afspraak_id. Eigen tabel, eigen naamgeving (underscore) — sluit niet aan op [dbo].[Afspraak].
 -- =================================================================================================
 CREATE TABLE [dbo].[WijzigAfspraakPincodes] (
     [id]            INT IDENTITY(1,1) PRIMARY KEY,
@@ -105,7 +109,7 @@ BEGIN
         RETURN;
 
     SELECT TOP 1
-        @afspraak_id = [afspraak_id],
+        @afspraak_id = [afspraak-id],
         @adviseur_id = [adviseur_id],
         @datum = CAST([datum_adviesgesprek] AS date),
         @tijd = CAST([tijd_adviesgesprek] AS time),
@@ -232,14 +236,14 @@ BEGIN
     END
 
     SELECT
-        @afspraak_id = [afspraak_id],
+        @afspraak_id = [afspraak-id],
         @adviseur_id = [adviseur_id],
         @datum = CAST([datum_adviesgesprek] AS date),
         @tijd = CAST([tijd_adviesgesprek] AS time),
         @duur_kwartieren = [duur],
         @vorm_afspraak = [vorm_afspraak]
     FROM [dbo].[Afspraak]
-    WHERE [afspraak_id] = @gekoppeld_afspraak_id;
+    WHERE [afspraak-id] = @gekoppeld_afspraak_id;
 
     IF @afspraak_id IS NULL
     BEGIN
@@ -304,7 +308,7 @@ BEGIN
 
     SELECT @saleOpportunityId = [saleop_id]
     FROM [dbo].[Afspraak]
-    WHERE [afspraak_id] = @afspraak_id;
+    WHERE [afspraak-id] = @afspraak_id;
 
     IF @@ROWCOUNT = 0
     BEGIN
@@ -321,7 +325,7 @@ BEGIN
       [duur] = @duur_kwartieren,
       [vorm_afspraak] = @vormAfspraakGenormaliseerd,
       [updated_at] = GETDATE()
-    WHERE [afspraak_id] = @afspraak_id;
+    WHERE [afspraak-id] = @afspraak_id;
 
     -- Actions-log voor de wijziging. Deze SP wordt aangeroepen door de AfspraakMaken Azure
     -- Function (function-key-auth, geen ingelogde gebruiker) — er is dus nooit een "ingelogde

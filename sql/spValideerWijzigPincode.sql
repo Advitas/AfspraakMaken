@@ -8,8 +8,9 @@ Gedrag bij mismatch/verlopen/te vaak fout: @geldig = 0, generieke @foutmelding, 
 exacte reden (voorkomt informatie-lekken). Bij match: retourneert de actuele afspraak-informatie
 (kan afwijken van het moment van aanvragen, als de afspraak intussen elders gewijzigd is) en @geldig = 1.
 
-Aannames: zelfde als sql/spZoekAfspraakVoorWijziging.sql — met name de PK-kolomnaam [afspraak_id] op
-[dbo].[Afspraak].
+Aannames: zelfde als sql/spZoekAfspraakVoorWijziging.sql. Let op: [dbo].[Afspraak]'s PK heet
+[afspraak-id] (koppelteken, bevestigd 2026-09-03) — [dbo].[WijzigAfspraakPincodes] (onze eigen
+tabel) gebruikt wél [afspraak_id] met underscore, dat is bewust ons eigen naamgevingsconventie.
 ******/
 SET ANSI_NULLS ON
 GO
@@ -72,14 +73,14 @@ BEGIN
     END
 
     SELECT
-        @afspraak_id = [afspraak_id],
+        @afspraak_id = [afspraak-id],
         @adviseur_id = [adviseur_id],
         @datum = CAST([datum_adviesgesprek] AS date),
         @tijd = CAST([tijd_adviesgesprek] AS time),
         @duur_kwartieren = [duur],
         @vorm_afspraak = [vorm_afspraak]
     FROM [dbo].[Afspraak]
-    WHERE [afspraak_id] = @gekoppeld_afspraak_id;
+    WHERE [afspraak-id] = @gekoppeld_afspraak_id;
 
     IF @afspraak_id IS NULL
     BEGIN

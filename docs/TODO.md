@@ -10,14 +10,16 @@
 - [ ] `spWijzigAfspraakDatumTijd` moet uitgevoerd worden op `SQL_DATABASE_TEST`/productie — het voorstel
   staat in `sql/spWijzigAfspraakDatumTijd.sql`, gebaseerd op het schema van `[dbo].[Afspraak]` zoals
   zichtbaar in `[PowerBI].[usp_Reservering_OmzettenNaarAfspraak]`, plus een `[dbo].[actions]`-insert voor
-  het "Afspraakwijziging"-scenario (beide aangeleverd 2026-09-03). **Nog te verifiëren vóór uitvoering**
-  (zie ook de opsomming bovenaan `sql/spWijzigAfspraakDatumTijd.sql`): (1) de PK-kolomnaam van
-  `[dbo].[Afspraak]` is aangenomen als `[afspraak_id]`; (2) `[vorm_afspraak]` = `'Buitendienst'` is een
-  aanname naar analogie met het bevestigde `'Online'`; (3) `dbo.users` heeft een PK-kolom `[id]` (voor de
-  `creator_id`-fallback); (4) een aantal `[actions]`-kolommen (direction, product_id, tag, communication,
-  Oorsprong, Oorsprong_categorie, insteek_id, en field_contents_4 t/m 12) staan op `NULL` omdat daar geen
-  waarde voor is aangeleverd — check of dat businessmatig klopt. Tot uitvoering + verificatie geeft
-  `/wijzig-opslaan` een databasefout ("procedure niet gevonden").
+  het "Afspraakwijziging"-scenario (beide aangeleverd 2026-09-03). **Bevestigd 2026-09-03:** de PK-kolom
+  van `[dbo].[Afspraak]` heet `[afspraak-id]` **met koppelteken** (niet underscore) — zelfde patroon als
+  `[afspraakstate-id]`/`[insteek-id]`/`[prodcat-id]`; `[dbo].[actions]` gebruikt wél `[afspraak_id]` met
+  underscore. Alle SQL-bestanden in `sql/` zijn hierop bijgewerkt. **Nog te verifiëren vóór uitvoering**
+  (zie ook de opsomming bovenaan `sql/spWijzigAfspraakDatumTijd.sql`): (1) `[vorm_afspraak]` =
+  `'Buitendienst'` is een aanname naar analogie met het bevestigde `'Online'`; (2) `dbo.users` heeft een
+  PK-kolom `[id]` (voor de `creator_id`-fallback); (3) een aantal `[actions]`-kolommen (direction,
+  product_id, tag, communication, Oorsprong, Oorsprong_categorie, insteek_id, en field_contents_4 t/m 12)
+  staan op `NULL` omdat daar geen waarde voor is aangeleverd — check of dat businessmatig klopt. Tot
+  uitvoering + verificatie geeft `/wijzig-opslaan` een databasefout ("procedure niet gevonden").
 - [ ] Rechten controleren/zetten voor `svc-AppMaakAfspraak` op de nieuwe SP + onderliggende tabellen
   (`EXECUTE` op `spWijzigAfspraakDatumTijd`, `SELECT`/`UPDATE` op `Afspraak`, `INSERT` op `actions`,
   `SELECT` op `users`) — de GRANT-statements staan onderaan `sql/spWijzigAfspraakDatumTijd.sql`. Zelfde

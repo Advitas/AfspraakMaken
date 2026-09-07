@@ -8,7 +8,7 @@ achterhalen welke e-mailadressen wel/niet een klant zijn).
 
 Aannames die geverifieerd moeten worden vóór uitvoering (zie ook sql/spWijzigAfspraakDatumTijd.sql voor
 de eerdere aannames over [dbo].[Afspraak]):
-1) De PK-kolom van [dbo].[Afspraak] heet [afspraak_id] (zelfde aanname als eerder, nog niet bevestigd).
+1) De PK-kolom van [dbo].[Afspraak] heet [afspraak-id] (met koppelteken, bevestigd 2026-09-03).
 2) De Klanten-tabel heet [dbo].[Klanten] met kolommen [klant_id], [email] en [postcode] —
    AgendaPicker's eigen code (server.js, getKlantenTableInfo) detecteert dit juist DYNAMISCH omdat het
    schema kan variëren (kolomnamen als 'e-mailadres'/'mailadres'/'postalcode' worden daar ook
@@ -59,7 +59,7 @@ BEGIN
         RETURN;
 
     SELECT TOP 1
-        @afspraak_id = [afspraak_id],
+        @afspraak_id = [afspraak-id],
         @adviseur_id = [adviseur_id],
         @datum = CAST([datum_adviesgesprek] AS date),
         @tijd = CAST([tijd_adviesgesprek] AS time),
