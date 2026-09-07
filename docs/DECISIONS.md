@@ -395,3 +395,30 @@ onthouden) mee te sturen i.p.v. `email`/`pincode` — zie AgendaPicker's `docs/D
 bij een go-live naar echte klanten alsnog een lichtere vorm van bescherming (bijv. een kortlevende,
 ondertekende token die bij `/wijzig_verificatie` wordt afgegeven en bij `/wijzig_opslaan` wordt
 geverifieerd, zonder de 5-minuten-tijdsdruk van de pincode zelf).
+
+---
+
+## 2026-09-07 — Postcode voor buitendienst-beschikbaarheid komt uit het afspraak-adres, niet uit Klanten
+
+**Context:** de gebruiker meldde een 400-fout vanuit `/api/availability` bij `vorm_afspraak=Buitendienst`
+("Parameter postcode is verplicht..."), met de volgende toelichting: *"bij een buitendienst moet een
+postcod worden meegestuurd. Die staat in in de afspraak via de adressid naar dbo.adres [Adres-id]
+afspraak adres_sleutel. De PKD (eerste 4 moet worden doorgegeven"*. Tot nu toe kwam `@postcode` in
+`spZoekAfspraakVoorWijziging` uit `[dbo].[Klanten].[postcode]` (klantgegevens), en `spValideerWijzigPincode`
+gaf simpelweg de eerder opgeslagen waarde uit `[dbo].[WijzigAfspraakPincodes]` terug (kon dus verouderd
+zijn, in tegenstelling tot alle andere afspraak-velden die daar wél vers herquery't worden). Beide
+kloppen niet met wat de gebruiker aangeeft: de postcode hoort bij het **afspraak-adres**, niet bij de
+klant in het algemeen.
+
+**Beslissing:** beide stored procedures leiden `@postcode` nu af via
+`[dbo].[Afspraak].[adres_sleutel]` (FK) -> `[dbo].[Adres].[Adres-id]` (PK) -> `LEFT([PKD], 4)`.
+`spValideerWijzigPincode` doet dit vers bij elke aanroep (consistent met hoe de andere afspraak-velden
+daar al werken), niet meer uit de opgeslagen pincode-rij. `[dbo].[WijzigAfspraakPincodes]`'s eigen
+`postcode`-kolom blijft ongebruikt bestaan (geen schemawijziging, buiten scope van deze fix).
+
+**Gevolgen:** vereist een nieuwe deploy van `spZoekAfspraakVoorWijziging.sql` en
+`spValideerWijzigPincode.sql` (en de bijgewerkte `alles_in_1_wijzig_afspraak.sql`) vóórdat
+buitendienst-afspraken via deze flow gewijzigd kunnen worden. **Niet geverifieerd:** de kolomnamen
+`adres_sleutel`/`Adres-id`/`PKD` komen alleen uit de tekst van de gebruiker, niet gecontroleerd tegen
+het echte schema (bijv. via `sp_help '[dbo].[Adres]'`) — bij een afwijkende naam geeft dit dezelfde
+"Invalid column name"-fout als eerdere schema-aannames in deze flow.

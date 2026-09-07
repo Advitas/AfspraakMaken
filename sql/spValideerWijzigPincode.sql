@@ -22,6 +22,11 @@ tabel) gebruikt wél [afspraak_id] met underscore, dat is bewust ons eigen naamg
 NIET bevestigd: of [dbo].[Afspraak]'s kolommen [insteek-id]/[prodcat-id] koppeltekens gebruiken (zoals
 [afspraakstate-id]) of underscores (zoals klant_id/adviseur_id) — hier aangenomen als koppelteken, naar
 analogie van [afspraakstate-id]. Controleer dit vóór uitvoering.
+
+@postcode wordt (sinds 2026-09-07) niet meer overgenomen uit de opgeslagen pincode-rij (die kan
+verouderd zijn), maar net als de andere afspraak-velden vers herleid uit [dbo].[Afspraak] via
+[adres_sleutel] -> [dbo].[Adres].[Adres-id] -> LEFT([PKD], 4). Zie sql/spZoekAfspraakVoorWijziging.sql
+voor dezelfde, nog niet geverifieerde aanname over deze kolomnamen.
 ******/
 SET ANSI_NULLS ON
 GO
@@ -55,8 +60,7 @@ BEGIN
         @opgeslagen_pincode = [pincode],
         @verloopt_op = [verloopt_op],
         @attempts = [attempts],
-        @gekoppeld_afspraak_id = [afspraak_id],
-        @postcode = [postcode]
+        @gekoppeld_afspraak_id = [afspraak_id]
     FROM [dbo].[WijzigAfspraakPincodes]
     WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)))
     ORDER BY [aangemaakt_op] DESC;
@@ -84,7 +88,7 @@ BEGIN
         RETURN;
     END
 
-    DECLARE @insteek_id INT, @prodcat_id INT;
+    DECLARE @insteek_id INT, @prodcat_id INT, @adres_sleutel INT;
 
     SELECT
         @afspraak_id = [afspraak-id],
@@ -94,7 +98,8 @@ BEGIN
         @duur_kwartieren = [duur],
         @vorm_afspraak = [vorm_afspraak],
         @insteek_id = [insteek-id],
-        @prodcat_id = [prodcat-id]
+        @prodcat_id = [prodcat-id],
+        @adres_sleutel = [adres_sleutel]
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @gekoppeld_afspraak_id;
 
@@ -103,6 +108,13 @@ BEGIN
         -- De gekoppelde afspraak bestaat niet meer (bijv. verwijderd sinds de pincode-aanvraag).
         SET @foutmelding = N'De bijbehorende afspraak is niet meer beschikbaar.';
         RETURN;
+    END
+
+    IF @adres_sleutel IS NOT NULL
+    BEGIN
+        SELECT TOP 1 @postcode = LEFT([PKD], 4)
+        FROM [dbo].[Adres]
+        WHERE [Adres-id] = @adres_sleutel;
     END
 
     SET @agenda = CASE

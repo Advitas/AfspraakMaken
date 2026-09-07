@@ -140,7 +140,10 @@ Body: { email, pincode, run }
 Gedrag: controleert de pincode via [dbo].[spValideerWijzigPincode]. Bij succes: retourneert afspraak_id,
 adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, postcode, agenda (afgeleid uit insteek_id/
 prodcat_id — hypotheek/vermogen/schade) van de gekoppelde afspraak (voor de kalender + informatieweergave
-in AgendaPicker).
+in AgendaPicker). postcode komt (sinds 2026-09-07) uit het afspraak-adres zelf — [dbo].[Afspraak].
+[adres_sleutel] -> [dbo].[Adres].[Adres-id] -> de eerste 4 tekens van [PKD] — nodig voor de
+buitendienst-beschikbaarheid, die zonder postcode een 400-fout geeft (zie /api/availability in
+USER_MANUAL.md).
 
 POST /api/wijzig_opslaan
 Body: { afspraak_id, adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, run }

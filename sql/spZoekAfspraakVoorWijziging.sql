@@ -9,17 +9,24 @@ achterhalen welke e-mailadressen wel/niet een klant zijn).
 Aannames die geverifieerd moeten worden vóór uitvoering (zie ook sql/spWijzigAfspraakDatumTijd.sql voor
 de eerdere aannames over [dbo].[Afspraak]):
 1) De PK-kolom van [dbo].[Afspraak] heet [afspraak-id] (met koppelteken, bevestigd 2026-09-03).
-2) De Klanten-tabel heet [dbo].[Klanten] met kolommen [klant_id], [email] en [postcode] —
-   AgendaPicker's eigen code (server.js, getKlantenTableInfo) detecteert dit juist DYNAMISCH omdat het
-   schema kan variëren (kolomnamen als 'e-mailadres'/'mailadres'/'postalcode' worden daar ook
-   geaccepteerd) — deze SP gaat uit van de meest waarschijnlijke, vaste namen. Als dat niet klopt, moet
-   de WHERE/SELECT hieronder aangepast worden. @postcode is alleen relevant bij vorm_afspraak=buitendienst
-   (nodig voor de beschikbaarheids-kalender) en mag NULL zijn voor online-afspraken.
+2) De Klanten-tabel heet [dbo].[Klanten] met kolommen [klant_id] en [email] — AgendaPicker's eigen code
+   (server.js, getKlantenTableInfo) detecteert dit juist DYNAMISCH omdat het schema kan variëren
+   (kolomnamen als 'e-mailadres'/'mailadres' worden daar ook geaccepteerd) — deze SP gaat uit van de
+   meest waarschijnlijke, vaste namen. Als dat niet klopt, moet de WHERE/SELECT hieronder aangepast
+   worden.
 3) '[afspraakstate-id]'/'[Status afspraak]'/'afspraakstate_label' = 'Open' zijn WEL bevestigd (rechtstreeks
    overgenomen uit [PowerBI].[usp_Reservering_OmzettenNaarAfspraak], aangeleverd 2026-09-03).
 4) "Eerstvolgende toekomstige afspraak" = kleinste datum_adviesgesprek >= vandaag met status Open. Bij
    meerdere gelijktijdige afspraken voor dezelfde klant wordt er willekeurig één gekozen (geen expliciete
    tiebreaker anders dan tijd) — laat weten of dat businessmatig anders moet.
+5) @postcode (alleen relevant bij vorm_afspraak=buitendienst, nodig voor de beschikbaarheids-kalender;
+   mag NULL zijn voor online-afspraken) komt NIET uit [dbo].[Klanten] maar uit het afspraak-adres zelf:
+   [dbo].[Afspraak].[adres_sleutel] (underscore, FK-conventie zoals klant_id/adviseur_id) verwijst naar
+   [dbo].[Adres].[Adres-id] (koppelteken, PK-conventie zoals [afspraak-id]/[afspraakstate-id]).
+   [dbo].[Adres] heeft een kolom [PKD] (postcode, bijv. "1234AB") — @postcode wordt de eerste 4 tekens
+   daarvan (aangeleverd 2026-09-07). Kolomnamen [adres_sleutel]/[Adres-id]/[PKD] zijn NIET geverifieerd
+   tegen het echte schema, alleen aangeleverd door de gebruiker als tekst — controleer dit vóór
+   uitvoering.
 ******/
 SET ANSI_NULLS ON
 GO
@@ -43,8 +50,9 @@ BEGIN
 
     DECLARE @klant_id INT;
     DECLARE @open_state_id INT;
+    DECLARE @adres_sleutel INT;
 
-    SELECT TOP 1 @klant_id = [klant_id], @postcode = [postcode]
+    SELECT TOP 1 @klant_id = [klant_id]
     FROM [dbo].[Klanten]
     WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)));
 
@@ -64,7 +72,8 @@ BEGIN
         @datum = CAST([datum_adviesgesprek] AS date),
         @tijd = CAST([tijd_adviesgesprek] AS time),
         @duur_kwartieren = [duur],
-        @vorm_afspraak = [vorm_afspraak]
+        @vorm_afspraak = [vorm_afspraak],
+        @adres_sleutel = [adres_sleutel]
     FROM [dbo].[Afspraak]
     WHERE [klant_id] = @klant_id
       AND [afspraakstate-id] = @open_state_id
@@ -72,6 +81,15 @@ BEGIN
     ORDER BY [datum_adviesgesprek] ASC, [tijd_adviesgesprek] ASC;
 
     IF @afspraak_id IS NOT NULL
+    BEGIN
         SET @gevonden = 1;
+
+        IF @adres_sleutel IS NOT NULL
+        BEGIN
+            SELECT TOP 1 @postcode = LEFT([PKD], 4)
+            FROM [dbo].[Adres]
+            WHERE [Adres-id] = @adres_sleutel;
+        END
+    END
 END
 GO

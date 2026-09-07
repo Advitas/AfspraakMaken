@@ -99,3 +99,14 @@
   wijzigen — er is geen enkele identiteitscontrole meer bij het opslaan zelf. Overweeg dit alsnog te
   verzachten (bijv. een kortlevende, ondertekende token i.p.v. kale afspraak_id) als dit in productie
   gaat.
+- [x] **Postcode voor buitendienst-beschikbaarheid komt nu uit het afspraak-adres (2026-09-07):**
+  AgendaPicker's `/api/availability` gaf een 400 ("Parameter postcode is verplicht...") bij
+  `vorm_afspraak=Buitendienst`, omdat `@postcode` tot nu toe uit `[dbo].[Klanten]` kwam (vaak leeg/niet
+  representatief voor de afspraak zelf). `spZoekAfspraakVoorWijziging` en `spValideerWijzigPincode`
+  leiden `@postcode` nu af uit het afspraak-adres: `[dbo].[Afspraak].[adres_sleutel]` ->
+  `[dbo].[Adres].[Adres-id]` -> `LEFT([PKD], 4)`. **NIET geverifieerd** tegen het echte schema —
+  kolomnamen `adres_sleutel`/`Adres-id`/`PKD` zijn door de gebruiker als tekst aangeleverd, niet
+  gecontroleerd via `sp_help`. Vereist een nieuwe deploy van beide stored procedures
+  (`sql/spZoekAfspraakVoorWijziging.sql`, `sql/spValideerWijzigPincode.sql`, ook bijgewerkt in
+  `sql/alles_in_1_wijzig_afspraak.sql`) vóórdat buitendienst-afspraken via deze flow gewijzigd kunnen
+  worden.

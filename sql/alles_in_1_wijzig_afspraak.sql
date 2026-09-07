@@ -22,9 +22,9 @@
       bewust ook underscore (eigen naamgevingsconventie, geen bestaand schema om aan te sluiten).
    2) [dbo].[Afspraak].[vorm_afspraak] gebruikt de schrijfwijzen 'Online' / 'Buitendienst'
       (Titel-case) — alleen 'Online' is bevestigd, 'Buitendienst' is een aanname naar analogie.
-   3) [dbo].[Klanten] bestaat met kolommen [klant_id], [email] en [postcode] — AgendaPicker's
-      eigen code detecteert dit schema juist DYNAMISCH omdat het kan variëren; deze SP's gaan uit
-      van de meest waarschijnlijke, vaste namen. Check dit eerst met bijv. `sp_help '[dbo].[Klanten]'`.
+   3) [dbo].[Klanten] bestaat met kolommen [klant_id] en [email] — AgendaPicker's eigen code
+      detecteert dit schema juist DYNAMISCH omdat het kan variëren; deze SP's gaan uit van de meest
+      waarschijnlijke, vaste namen. Check dit eerst met bijv. `sp_help '[dbo].[Klanten]'`.
    4) [dbo].[users] heeft een PK-kolom [id] (voor de creator_id-fallback in spWijzigAfspraakDatumTijd).
    5) Een aantal [dbo].[actions]-kolommen (direction, product_id, tag, communication, Oorsprong,
       Oorsprong_categorie, insteek_id, field_contents_4 t/m 12) staan op NULL — check of dat
@@ -35,6 +35,12 @@
       AgendaPicker's /api/availability accepteert toch alleen hypotheek/vermogen/schade, dus 'schade'
       is de enige bruikbare uitkomst). NIET bevestigd: of [insteek-id]/[prodcat-id] daadwerkelijk
       koppeltekens gebruiken (aangenomen, naar analogie van [afspraakstate-id]).
+   7) @postcode (alleen relevant bij vorm_afspraak=buitendienst) komt sinds 2026-09-07 NIET meer uit
+      [dbo].[Klanten], maar uit het afspraak-adres zelf: [dbo].[Afspraak].[adres_sleutel] (underscore)
+      -> [dbo].[Adres].[Adres-id] (koppelteken) -> LEFT([PKD], 4). Kolomnamen [adres_sleutel]/
+      [Adres-id]/[PKD] zijn NIET geverifieerd tegen het echte schema, alleen aangeleverd als tekst
+      door de gebruiker — controleer dit vóór uitvoering (zelfde risico als eerdere aannames hierboven:
+      een verkeerde kolomnaam geeft een "Invalid column name"-fout).
 
  Controleer vóór het GRANT-blok eerst wat svc-AppMaakAfspraak al heeft, om overbodige grants te
  vermijden:
@@ -99,8 +105,9 @@ BEGIN
 
     DECLARE @klant_id INT;
     DECLARE @open_state_id INT;
+    DECLARE @adres_sleutel INT;
 
-    SELECT TOP 1 @klant_id = [klant_id], @postcode = [postcode]
+    SELECT TOP 1 @klant_id = [klant_id]
     FROM [dbo].[Klanten]
     WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)));
 
@@ -120,7 +127,8 @@ BEGIN
         @datum = CAST([datum_adviesgesprek] AS date),
         @tijd = CAST([tijd_adviesgesprek] AS time),
         @duur_kwartieren = [duur],
-        @vorm_afspraak = [vorm_afspraak]
+        @vorm_afspraak = [vorm_afspraak],
+        @adres_sleutel = [adres_sleutel]
     FROM [dbo].[Afspraak]
     WHERE [klant_id] = @klant_id
       AND [afspraakstate-id] = @open_state_id
@@ -128,7 +136,16 @@ BEGIN
     ORDER BY [datum_adviesgesprek] ASC, [tijd_adviesgesprek] ASC;
 
     IF @afspraak_id IS NOT NULL
+    BEGIN
         SET @gevonden = 1;
+
+        IF @adres_sleutel IS NOT NULL
+        BEGIN
+            SELECT TOP 1 @postcode = LEFT([PKD], 4)
+            FROM [dbo].[Adres]
+            WHERE [Adres-id] = @adres_sleutel;
+        END
+    END
 END
 GO
 
@@ -213,8 +230,7 @@ BEGIN
         @opgeslagen_pincode = [pincode],
         @verloopt_op = [verloopt_op],
         @attempts = [attempts],
-        @gekoppeld_afspraak_id = [afspraak_id],
-        @postcode = [postcode]
+        @gekoppeld_afspraak_id = [afspraak_id]
     FROM [dbo].[WijzigAfspraakPincodes]
     WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)))
     ORDER BY [aangemaakt_op] DESC;
@@ -242,7 +258,7 @@ BEGIN
         RETURN;
     END
 
-    DECLARE @insteek_id INT, @prodcat_id INT;
+    DECLARE @insteek_id INT, @prodcat_id INT, @adres_sleutel INT;
 
     SELECT
         @afspraak_id = [afspraak-id],
@@ -252,7 +268,8 @@ BEGIN
         @duur_kwartieren = [duur],
         @vorm_afspraak = [vorm_afspraak],
         @insteek_id = [insteek-id],
-        @prodcat_id = [prodcat-id]
+        @prodcat_id = [prodcat-id],
+        @adres_sleutel = [adres_sleutel]
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @gekoppeld_afspraak_id;
 
@@ -261,6 +278,13 @@ BEGIN
         -- De gekoppelde afspraak bestaat niet meer (bijv. verwijderd sinds de pincode-aanvraag).
         SET @foutmelding = N'De bijbehorende afspraak is niet meer beschikbaar.';
         RETURN;
+    END
+
+    IF @adres_sleutel IS NOT NULL
+    BEGIN
+        SELECT TOP 1 @postcode = LEFT([PKD], 4)
+        FROM [dbo].[Adres]
+        WHERE [Adres-id] = @adres_sleutel;
     END
 
     SET @agenda = CASE
