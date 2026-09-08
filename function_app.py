@@ -5,8 +5,6 @@ import os
 import re
 import secrets
 from datetime import date, time, timedelta
-from urllib.parse import urlencode
-
 import azure.functions as func
 import pyodbc
 import requests
@@ -432,11 +430,19 @@ def _build_afspraak_bevestiging_email(data: dict, sp_output: dict, run_value) ->
     subject_prefix = "" if is_prod else "[TEST] "
     subject = f"{subject_prefix}Uw afspraak is bevestigd"
 
-    afspraak_id = sp_output.get("afspraak_id")
     datum_label = data["datum"].isoformat()
     tijd_label = data["tijd"].strftime("%H:%M")
     vorm_afspraak = str(data.get("vorm_afspraak") or "online").strip().lower()
-    vorm_label = "Buitendienst (bij u op locatie)" if vorm_afspraak == "buitendienst" else "Online"
+    postcode = str(data.get("postcode") or "").strip()
+
+    if vorm_afspraak == "buitendienst":
+        omschrijving_label = (
+            f"Dit is een afspraak bij u thuis, op postcode {html.escape(postcode)}."
+            if postcode
+            else "Dit is een afspraak bij u thuis."
+        )
+    else:
+        omschrijving_label = "Dit is een online afspraak."
 
     test_banner = (
         ""
@@ -446,24 +452,6 @@ def _build_afspraak_bevestiging_email(data: dict, sp_output: dict, run_value) ->
             "(niet tegen productie) — geen actie ondernemen.</p>"
         )
     )
-
-    wijzig_knop = ""
-    if afspraak_id not in (None, "") and data.get("email"):
-        agendapicker_base = os.getenv(
-            "AGENDAPICKER_BASE_URL", "https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net"
-        ).rstrip("/")
-
-        # De wijzig-flow start met een e-mail-uitvraag op de pagina zelf (niet meer met een link die
-        # alle gegevens al meegeeft) — de link hieronder vult alleen het e-mailveld voor, ter
-        # gemak; het systeem zoekt de bijbehorende afspraak zelf op via spZoekAfspraakVoorWijziging.
-        wijzig_link_url = f"{agendapicker_base}/wijzig-afspraak.html?{urlencode({'email': data['email']})}"
-        wijzig_knop = (
-            '<p style="margin-top:16px;">'
-            f'<a href="{html.escape(wijzig_link_url, quote=True)}" style="background-color:#1a3c6e;'
-            'color:#ffffff;padding:8px 16px;border-radius:4px;text-decoration:none;display:inline-block;">'
-            "Afspraak wijzigen</a>"
-            "</p>"
-        )
 
     html_body = (
         '<div style="font-family:Segoe UI, Arial, sans-serif;color:#222;max-width:600px;">'
@@ -476,11 +464,10 @@ def _build_afspraak_bevestiging_email(data: dict, sp_output: dict, run_value) ->
         f'<tr><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;font-weight:bold;'
         f'white-space:nowrap;">Tijd</td><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;">'
         f"{html.escape(tijd_label)}</td></tr>"
-        f'<tr><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;font-weight:bold;'
-        f'white-space:nowrap;">Vorm</td><td style="padding:6px 12px;border-bottom:1px solid #e5e5e5;">'
-        f"{html.escape(vorm_label)}</td></tr>"
         "</table>"
-        f"{wijzig_knop}"
+        f'<p style="margin-top:12px;">{omschrijving_label}</p>'
+        '<p style="margin-top:12px;">U ontvangt op korte termijn nog een aparte bevestigingsmail '
+        "met alle verdere informatie over uw afspraak.</p>"
         '<p style="color:#888;font-size:12px;margin-top:16px;">'
         "Automatisch gegenereerd door AfspraakMaken."
         "</p>"

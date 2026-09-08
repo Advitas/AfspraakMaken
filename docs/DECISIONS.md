@@ -751,3 +751,29 @@ het kale `adviseur_id`. **Niet geverifieerd:** de exacte schema-namen zijn dit k
 de gebruiker aangeleverd (niet uit codebase-bewijs afgeleid zoals bij eerdere kolommen), dus het
 gebruikelijke "Invalid column name"-risico bij de eerstvolgende SQL-deploy is hier kleiner, maar niet
 nul.
+
+---
+
+## 2026-09-07 — Afspraak-bevestigingsmail vereenvoudigd: geen knop, geen Vorm-rij, wel omschrijving
+
+**Context:** de gebruiker bekeek een gerenderd voorbeeld van `_build_afspraak_bevestiging_email`'s
+output (op verzoek gegenereerd en als HTML-bestand gestuurd) en vroeg om drie wijzigingen: *"de
+afspraak wijzigen knop mag van die mail af. De vorm mag er ook af. Graag een omschrijving dat de het
+een online afspraak betreft (of een afspraak bij u thuis met het adres waar) verder moet er een
+opmerkking in dat er een nieuwe bevestigingsmail gaat volgen met alle informatie"*.
+
+**Beslissing:** de `wijzig_knop`-opbouw (incl. de `AGENDAPICKER_BASE_URL`-lookup en de
+`wijzig-afspraak.html?email=...`-link) is volledig verwijderd, evenals de "Vorm"-tabelrij. Daarvoor in
+de plaats: een omschrijvingszin op basis van `vorm_afspraak` — `"Dit is een online afspraak."` of
+`"Dit is een afspraak bij u thuis, op postcode {postcode}."` (het `{postcode}`-deel alleen als
+`postcode` in de `/afspraak`-body zat; `/afspraak`'s payload heeft geen los straat/huisnummer-veld,
+dus een écht volledig adres kan (nog) niet getoond worden — dat is expliciet aan de gebruiker
+teruggekoppeld als open vraag, niet stilzwijgend aangenomen). Een vaste tweede zin meldt dat er nog
+een aparte bevestigingsmail met alle verdere informatie volgt. De nu ongebruikte `urlencode`-import is
+verwijderd; `AGENDAPICKER_BASE_URL` wordt nergens meer gebruikt in `function_app.py` (de env var zelf
+is niet verwijderd uit de App Settings-documentatie, kan zonder effect blijven staan).
+
+**Gevolgen:** geverifieerd met een los testscript (drie scenario's: online, buitendienst-met-postcode,
+buitendienst-zonder-postcode) en een visueel gerenderd voorbeeld: knop en Vorm-rij zijn weg, de
+omschrijvingszin en de vervolgmail-opmerking staan er correct in. Geen SQL-wijziging, geen wijziging
+aan het bestaande `AFSPRAAK_BEVESTIGING_MAIL_ENABLED`-gedrag (nog steeds UIT by default).

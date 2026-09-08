@@ -223,3 +223,14 @@
   DB/mail-verzending): adviseurswissel toont namen i.p.v. kale ID's, klantnaam+klant_id staan in de
   body, zelfservice-banner is aanwezig, en de fallback naar `adviseur_id` werkt correct als er geen
   naam bekend is. Vereist dezelfde gecombineerde SQL+code-deploy als de andere punten van vandaag.
+- [x] **Afspraak-bevestigingsmail vereenvoudigd (2026-09-07):** op verzoek van de gebruiker is de
+  "Afspraak wijzigen"-knop en de "Vorm"-rij verwijderd uit `_build_afspraak_bevestiging_email`, en
+  vervangen door een omschrijvingszin: "Dit is een online afspraak." of "Dit is een afspraak bij u
+  thuis, op postcode {postcode}." (alleen met postcode als die in de `/afspraak`-body zat — er is nog
+  geen los straat/huisnummer-veld, dus een écht volledig adres kan nog niet getoond worden; nagevraagd
+  bij de gebruiker of dat voldoende is). Ook een vaste zin toegevoegd dat er nog een aparte
+  bevestigingsmail met alle verdere informatie volgt. `urlencode`-import is verwijderd (werd nergens
+  anders meer gebruikt). `AGENDAPICKER_BASE_URL` wordt nu nergens meer gebruikt in `function_app.py`
+  (env var zelf niet verwijderd, kan alsnog aanwezig blijven in de App Settings zonder effect).
+  Geverifieerd met een los testscript + een gerenderd voorbeeld (online + buitendienst-met/zonder-
+  postcode): knop en Vorm-rij zijn weg, omschrijving en vervolgmail-opmerking staan erin.

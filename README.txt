@@ -181,19 +181,18 @@ planner). De oude afspraak-gegevens + klant-/adviseursnamen komen uit
 [dbo].[Klanten].[voorletters]/[tussenvoegsel]/[naam], adviseursnamen uit [dbo].[Adviseurs].[Adviseur]
 (gematcht op [dbo].[Adviseurs].[adviseur_ID]).
 
-Nieuwe environment variable:
-- AGENDAPICKER_BASE_URL (optioneel, default
-  https://agendapicker-ahe5g9g6gdh0gcdw.westeurope-01.azurewebsites.net — basis-URL voor de "Afspraak
-  wijzigen"-link in de afspraak-bevestigingsmail hieronder; de pincode-mail zelf bevat geen link meer)
-
 ---
 
 Afspraak-bevestigingsmail naar de klant (UIT by default)
 
 /afspraak (POST) kan optioneel, na een succesvolle aanmaak, een bevestigingsmail naar de klant
-(`email`-veld uit de body) sturen met datum/tijd/vorm en een "Afspraak wijzigen"-knop die naar
-AgendaPicker's wijzig-afspraak.html?email=... linkt (vult alleen het e-mailveld voor; de klant moet zelf
-op "Versturen" klikken).
+(`email`-veld uit de body) sturen met datum/tijd en een omschrijving van de afspraakvorm: "Dit is een
+online afspraak." of "Dit is een afspraak bij u thuis, op postcode {postcode}." (postcode alleen als
+`postcode` in de body zit — er is geen los straat/huisnummer-veld beschikbaar, dus een volledig adres
+kan nog niet getoond worden). Ook een vaste opmerking dat er nog een aparte bevestigingsmail met alle
+verdere informatie volgt. Sinds 2026-09-07 bevat deze mail GEEN "Afspraak wijzigen"-knop en GEEN losse
+"Vorm"-rij meer (vervangen door de omschrijvingszin hierboven) — AGENDAPICKER_BASE_URL is daardoor niet
+meer nodig voor deze mail (die env var wordt nergens meer gebruikt in dit bestand).
 
 Standaard UIT — /afspraak is een bestaand, al in productie actief endpoint; dit voorkomt dat er
 ongemerkt bevestigingsmails naar echte klanten gaan zodra deze wijziging gedeployed wordt.
