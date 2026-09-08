@@ -234,3 +234,14 @@
   (env var zelf niet verwijderd, kan alsnog aanwezig blijven in de App Settings zonder effect).
   Geverifieerd met een los testscript + een gerenderd voorbeeld (online + buitendienst-met/zonder-
   postcode): knop en Vorm-rij zijn weg, omschrijving en vervolgmail-opmerking staan erin.
+- [x] **`preview`-modus voor `/wijzig_aanvraag` (2026-09-07):** naar aanleiding van een incident waarbij
+  `WIJZIG_MAIL_OVERRIDE_TO` op de verkeerde Azure-resource stond en een echte klant een testmail kreeg,
+  vroeg de gebruiker om een bevestigingspopup met annuleer-optie die laat zien waar de pincode-mail
+  daadwerkelijk heen gaat. `/wijzig_aanvraag` accepteert nu `{ preview: true }`: retourneert direct
+  `{ verzend_naar }` (via `_resolve_wijzig_mail_override_to`) zonder de database te raken of iets te
+  versturen — de bestemming hangt alleen af van `run` + de env var, nooit van of het e-mailadres een
+  geldige afspraak heeft, dus geen risico op het lekken van die info via deze route. AgendaPicker's
+  kant (zie die repo's `docs/DECISIONS.md`) roept dit eerst aan, toont een popup, en doet pas bij
+  bevestiging de echte aanvraag. Geverifieerd met een los testscript (geen DB-aanroep in dit pad):
+  correcte resolutie voor alle combinaties (prod zonder override, test met default-override, expliciete
+  env-var-override).

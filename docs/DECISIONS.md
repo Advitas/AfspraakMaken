@@ -777,3 +777,34 @@ is niet verwijderd uit de App Settings-documentatie, kan zonder effect blijven s
 buitendienst-zonder-postcode) en een visueel gerenderd voorbeeld: knop en Vorm-rij zijn weg, de
 omschrijvingszin en de vervolgmail-opmerking staan er correct in. Geen SQL-wijziging, geen wijziging
 aan het bestaande `AFSPRAAK_BEVESTIGING_MAIL_ENABLED`-gedrag (nog steeds UIT by default).
+
+---
+
+## 2026-09-07 — `preview`-modus voor `/wijzig_aanvraag`: bevestigingspopup vóór het versturen van de pincode-mail
+
+**Context:** de gebruiker had `WIJZIG_MAIL_OVERRIDE_TO=rvader@advitas.nl` gezet, maar op de verkeerde
+Azure-resource — waardoor een echte klant alsnog de testmail kreeg. Vervolgvraag: *"kan je een popup
+meegeven waar de mail heen wordt verstuurd met een cancel optie"*. Voorgelegd: moet dit alleen bij
+`run=test` zichtbaar zijn (in het al-bestaande technische statuspaneel), of voor iedereen inclusief
+echte klanten? En voor welke mail-actie(s)? Gebruiker koos: voor iedereen, en alleen voor de
+pincode-aanvraag (de eerste stap, waar dit incident zich voordeed). Dit bleek eenvoudiger dan verwacht:
+het verzendadres hangt uitsluitend af van `run` + de env var (`_resolve_wijzig_mail_override_to`), niet
+van het ingevoerde e-mailadres of of er een afspraak bestaat — bij `run=prod` zonder override is het
+resultaat altijd gewoon het door de klant ingevoerde e-mailadres.
+
+**Beslissing:** `/wijzig_aanvraag` accepteert een nieuwe, optionele `preview`-vlag in de body. Is die
+`true`, dan wordt er — vóór er een DB-connectie wordt geopend — direct
+`{ verzend_naar: _resolve_wijzig_mail_override_to(run) or email }` teruggegeven; geen
+`spZoekAfspraakVoorWijziging`-aanroep, geen pincode-generatie, geen mail. Dit garandeert twee dingen:
+(1) exact dezelfde resolutielogica als de daadwerkelijke verzendfunctie (`_send_wijzig_email`), dus
+geen risico op een tweede, losse implementatie die uit de pas gaat lopen; (2) geen informatie-lek over
+of een e-mailadres een geldige afspraak heeft (dat blijft voorbehouden aan de niet-preview-aanroep, die
+wél de database raakt en bij "niet gevonden" een 404 geeft zonder mail).
+
+**Gevolgen:** vereist een nieuwe `function_app.py`-deploy (geen SQL-wijziging). AgendaPicker's kant
+(zie die repo's `docs/DECISIONS.md`) doet bij het indienen van het e-mailformulier eerst een
+preview-aanroep, toont een bevestigingspopup ("We sturen een pincode naar {verzend_naar}. Doorgaan?")
+en doet pas bij bevestiging de echte aanvraag. Geverifieerd met een los testscript (geen DB-aanroep in
+dit pad, geen `conn`/`cursor` gebruikt): correcte resolutie voor `run=prod` zonder override (eigen
+e-mailadres), `run=test` zonder env var (default naar `rvader@advitas.nl`), en met een expliciete env
+var (wint altijd, ongeacht `run`).

@@ -1441,6 +1441,29 @@ def wijzig_aanvraag(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="application/json",
         )
 
+    # Preview-modus (aangevraagd 2026-09-07, na een incident waarbij een test-mail-omleiding per
+    # ongeluk op de verkeerde Azure-resource stond en een echte klant een testmail kreeg): geeft
+    # alleen het resolved verzendadres terug, zonder de database te raken of daadwerkelijk iets te
+    # versturen. AgendaPicker toont dit vooraf in een bevestigingspopup met een annuleer-optie. De
+    # bestemming hangt uitsluitend af van run + de env var (_resolve_wijzig_mail_override_to), nooit
+    # van of het e-mailadres een geldige afspraak heeft — dus geen risico op het lekken van die info.
+    try:
+        is_preview = _parse_bool(payload.get("preview"), "preview", False)
+    except ValidationError as ex:
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    if is_preview:
+        override_to = _resolve_wijzig_mail_override_to(data["run"])
+        return func.HttpResponse(
+            json.dumps({"verzend_naar": override_to or data["email"]}),
+            status_code=200,
+            mimetype="application/json",
+        )
+
     conn = None
     cursor = None
     pincode = None

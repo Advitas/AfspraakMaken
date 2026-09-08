@@ -133,7 +133,7 @@ Nieuwe endpoints: afspraak wijzigen via pincode (e-mail-eerst)
 
 POST /api/wijzig_aanvraag (of /wijzig_aanvraag als routePrefix leeg staat)
 (underscore, niet koppelteken — bewust gelijkgetrokken met de Python-functienaam, zie docs/DECISIONS.md)
-Body: { email, run }
+Body: { email, run, preview }
 Gedrag: zoekt via [dbo].[spZoekAfspraakVoorWijziging] de eerstvolgende toekomstige afspraak met status
 'Open' voor dit e-mailadres. Geen afspraak gevonden: HTTP 404, geen mail verstuurd (voorkomt dat je via
 deze route kunt achterhalen welke e-mailadressen wel/niet klant zijn). Wel gevonden: genereert een
@@ -141,6 +141,13 @@ deze route kunt achterhalen welke e-mailadressen wel/niet klant zijn). Wel gevon
 slaat die op via [dbo].[spBewaarWijzigPincode], en mailt alleen de pincode (geen knop/link — de klant
 staat al op de AgendaPicker-wijzigpagina, dat scherm heeft juist deze aanvraag getriggerd) naar dat
 e-mailadres.
+
+preview (bool, optioneel, default false, aangevraagd 2026-09-07): als true, wordt de database niet
+geraakt en geen mail verstuurd — retourneert alleen { verzend_naar } (het resolved e-mailadres via
+_resolve_wijzig_mail_override_to, dus rekening houdend met een eventuele testmail-omleiding). Bedoeld
+voor AgendaPicker om vooraf te tonen waar de pincode-mail heen gaat, met een annuleer-optie — dit
+voorkomt dat een verkeerd geconfigureerde WIJZIG_MAIL_OVERRIDE_TO ongemerkt naar een echte klant (of
+juist naar het testadres i.p.v. de klant) mailt.
 
 POST /api/wijzig_verificatie
 Body: { email, pincode, run }
