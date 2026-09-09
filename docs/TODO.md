@@ -270,3 +270,8 @@
   `usp_Reservering_OmzettenNaarAfspraak`). Na een zelfservice-wijziging wijkt de rij dus af van hoe de
   rest van de rijen gevuld is. Uitzoeken of iets dat leest (Power BI-agenda's, planning-tooling) daarop
   vertrouwt, en zo nodig `CAST(@tijd AS datetime2)` schrijven i.p.v. `@datumTijd`.
+- [x] **@oud_vorm_afspraak toegevoegd (2026-09-09):** de samenvattingsmail naar planning@advitas.nl
+  meldt nu "Online - GEWIJZIGD door de klant (was Buitendienst)" als de klant zijn buitendienst-afspraak
+  zelf heeft omgezet naar online (AgendaPicker ADR-027). Nieuwe OUTPUT-parameter op
+  `spWijzigAfspraakDatumTijd`, gevuld in de bestaande pre-UPDATE SELECT. **SQL opnieuw uitvoeren en
+  `function_app.py` deployen** - alleen de SQL draaien breekt opslaan op de ontbrekende parameter.

@@ -890,3 +890,36 @@ aan `sql/spZoekAfspraakVoorWijziging.sql` (diff-gecontroleerd, comments genegeer
 opnieuw uitgevoerd worden** voordat dit effect heeft. Daarna is de test: pincode aanvragen voor het
 e-mailadres uit dit praktijkgeval hoort afspraak 122764 (18 september, 10:30) te vinden in plaats van
 een 404.
+
+---
+
+## 2026-09-09 - @oud_vorm_afspraak: vormwijziging zichtbaar in de samenvattingsmail
+
+**Context:** de klant kan in AgendaPicker een buitendienst-afspraak zelf omzetten naar online (zie
+AgendaPicker's ADR-027). De samenvattingsmail naar planning@advitas.nl toonde alleen de nieuwe vorm
+("Vorm afspraak: Online"), waardoor een planner niet kon zien dat het eerst een afspraak bij de klant
+thuis was - juist de wijziging die planningsgevolgen heeft (reistijd, regio-indeling). Gevraagd door de
+gebruiker bij het ontwerp van die feature.
+
+**Beslissing:** `[dbo].[spWijzigAfspraakDatumTijd]` krijgt `@oud_vorm_afspraak nvarchar(20) OUTPUT`,
+gevuld in dezelfde pre-UPDATE `SELECT` die al `@oud_adviseur_id`/`@oud_datum`/`@oud_tijd` vastlegt -
+hetzelfde patroon, dus geen nieuwe query en geen extra roundtrip. `_build_wijziging_samenvatting_email`
+maakt van de "Vorm afspraak"-rij "Online - GEWIJZIGD door de klant (was Buitendienst)" zodra oud en
+nieuw verschillen.
+
+Twee details die bewust zo zijn:
+
+- **Casing wordt gelijkgetrokken** met `.capitalize()`. De client stuurt de vorm in kleine letters
+  ('online'), de database bewaart Titel-case ('Buitendienst'); zonder normalisatie werd de rij "online
+  (was Buitendienst)", wat op een inconsistentie in de data lijkt terwijl het er geen is.
+- **Terugval als de oude vorm ontbreekt:** staat er nog een oudere SP-versie op de database, dan is
+  `oud_vorm_afspraak` NULL en toont de mail alleen de nieuwe vorm, in plaats van "gewijzigd van niets".
+  De mail is best-effort en mag nooit de oorzaak zijn dat een wijziging misgaat.
+
+**Gevolgen:** geverifieerd met een testscript dat `_build_wijziging_samenvatting_email` rechtstreeks
+aanroept en de "Vorm afspraak"-rij uit de HTML haalt: Buitendienst -> online geeft "Online - GEWIJZIGD
+door de klant (was Buitendienst)", online -> online geeft "Online", een NULL oude vorm geeft "Online",
+en beide leeg geeft de bestaande em-dash-terugval. **De SQL moet opnieuw uitgevoerd worden** en
+`function_app.py` moet gedeployed worden; zolang alleen de SQL gedraaid is, ontbreekt de parameter in de
+EXEC-aanroep en faalt opslaan ("expects parameter '@oud_vorm_afspraak'") - zelfde valkuil als bij eerdere
+signatuur-uitbreidingen deze week.

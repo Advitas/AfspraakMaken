@@ -45,6 +45,7 @@ CREATE OR ALTER PROCEDURE [dbo].[spWijzigAfspraakDatumTijd]
   @oud_adviseur_id  int OUTPUT,
   @oud_datum        date OUTPUT,
   @oud_tijd         time OUTPUT,
+  @oud_vorm_afspraak    nvarchar(20) OUTPUT,
   @klant_id             int OUTPUT,
   @klant_naam           nvarchar(255) OUTPUT,
   @oud_adviseur_naam    nvarchar(255) OUTPUT,
@@ -122,6 +123,7 @@ BEGIN
         @oud_adviseur_id = [adviseur_id],
         @oud_datum = CAST([datum_adviesgesprek] AS date),
         @oud_tijd = CAST([tijd_adviesgesprek] AS time),
+        @oud_vorm_afspraak = [vorm_afspraak],
         @klant_id = [klant_id]
     FROM [dbo].[Afspraak]
     WHERE [afspraak-id] = @afspraak_id;

@@ -195,9 +195,13 @@ opslaan zelf niet) een samenvattingsmail naar planning@advitas.nl (bij run=test 
 zelfde run-afhankelijke omleiding als de andere mails) met klantnaam + klant_id, "van [oude
 datum/tijd] naar [nieuwe datum/tijd]", of de adviseur is gewijzigd (met naam, niet alleen ID), en een
 duidelijke vermelding dat de klant dit zelf via de zelfservice-pagina heeft doorgevoerd (niet een
-planner). De oude afspraak-gegevens + klant-/adviseursnamen komen uit
+planner). Is ook de vorm van de afspraak gewijzigd (de klant kan een
+buitendienst-afspraak zelf omzetten naar online, zie AgendaPicker's ADR-027), dan staat dat er
+expliciet bij: "Online - GEWIJZIGD door de klant (was Buitendienst)". De oude vorm komt uit
+@oud_vorm_afspraak; ontbreekt die OUTPUT-parameter (oudere SP-versie op de database), dan toont de mail
+alleen de nieuwe vorm in plaats van een misleidende "gewijzigd van niets". De oude afspraak-gegevens + klant-/adviseursnamen komen uit
 [dbo].[spWijzigAfspraakDatumTijd]'s OUTPUT-parameters (@oud_adviseur_id/@oud_datum/@oud_tijd/
-@klant_id/@klant_naam/@oud_adviseur_naam/@nieuw_adviseur_naam) — klantnaam wordt opgebouwd uit
+@klant_id/@klant_naam/@oud_adviseur_naam/@nieuw_adviseur_naam/@oud_vorm_afspraak) — klantnaam wordt opgebouwd uit
 [dbo].[Klanten].[voorletters]/[tussenvoegsel]/[naam], adviseursnamen uit [dbo].[Adviseurs].[Adviseur]
 (gematcht op [dbo].[Adviseurs].[adviseur_ID]).
 

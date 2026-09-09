@@ -1618,6 +1618,7 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
     cursor.execute(
         """
         DECLARE @oud_adviseur_id INT, @oud_datum DATE, @oud_tijd TIME,
+                @oud_vorm_afspraak NVARCHAR(20),
                 @klant_id INT, @klant_naam NVARCHAR(255),
                 @oud_adviseur_naam NVARCHAR(255), @nieuw_adviseur_naam NVARCHAR(255),
                 @validatiefout NVARCHAR(500), @foutmelding NVARCHAR(500);
@@ -1632,6 +1633,7 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
             @oud_adviseur_id = @oud_adviseur_id OUTPUT,
             @oud_datum = @oud_datum OUTPUT,
             @oud_tijd = @oud_tijd OUTPUT,
+            @oud_vorm_afspraak = @oud_vorm_afspraak OUTPUT,
             @klant_id = @klant_id OUTPUT,
             @klant_naam = @klant_naam OUTPUT,
             @oud_adviseur_naam = @oud_adviseur_naam OUTPUT,
@@ -1640,6 +1642,7 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
             @foutmelding = @foutmelding OUTPUT;
 
         SELECT @oud_adviseur_id AS oud_adviseur_id, @oud_datum AS oud_datum, @oud_tijd AS oud_tijd,
+               @oud_vorm_afspraak AS oud_vorm_afspraak,
                @klant_id AS klant_id, @klant_naam AS klant_naam,
                @oud_adviseur_naam AS oud_adviseur_naam, @nieuw_adviseur_naam AS nieuw_adviseur_naam,
                @validatiefout AS validatiefout, @foutmelding AS foutmelding;
@@ -1683,6 +1686,19 @@ def _build_wijziging_samenvatting_email(
         else f"Nee (blijft {nieuw_adviseur_weergave})"
     )
 
+    # De klant kan een buitendienst-afspraak zelf omzetten naar online (AgendaPicker ADR-027) - dan is
+    # niet alleen de datum/tijd anders maar ook de vorm, en dat moet een planner in deze mail zien.
+    # De oude vorm komt uit @oud_vorm_afspraak; ontbreekt die (oudere SP-versie), dan tonen we alleen
+    # de nieuwe vorm i.p.v. een misleidende "gewijzigd van None".
+    # De client stuurt de vorm in kleine letters ('online'), de database bewaart 'm in Titel-case
+    # ('Buitendienst') - hier gelijktrekken zodat de mailrij niet "online (was Buitendienst)" wordt.
+    oud_vorm = str(oud.get("vorm_afspraak") or "").strip().capitalize()
+    nieuw_vorm = str(nieuw.get("vorm_afspraak") or "").strip().capitalize()
+    if oud_vorm and nieuw_vorm and oud_vorm.lower() != nieuw_vorm.lower():
+        vorm_label = f"{nieuw_vorm} — GEWIJZIGD door de klant (was {oud_vorm})"
+    else:
+        vorm_label = nieuw_vorm or oud_vorm
+
     klant_naam = nieuw.get("klant_naam")
     klant_id = nieuw.get("klant_id")
     klant_label = f"{klant_naam} ({klant_id})" if klant_naam and klant_id else (klant_naam or klant_id)
@@ -1705,7 +1721,7 @@ def _build_wijziging_samenvatting_email(
             ("Van", van_label),
             ("Naar", naar_label),
             ("Adviseur gewijzigd", adviseur_label),
-            ("Vorm afspraak", nieuw.get("vorm_afspraak")),
+            ("Vorm afspraak", vorm_label),
         ]
     )
 
@@ -1899,6 +1915,7 @@ def wijzig_opslaan(req: func.HttpRequest) -> func.HttpResponse:
             "adviseur_naam": sp_result["output"].get("oud_adviseur_naam"),
             "datum": sp_result["output"].get("oud_datum"),
             "tijd": sp_result["output"].get("oud_tijd"),
+            "vorm_afspraak": sp_result["output"].get("oud_vorm_afspraak"),
         }
         nieuw = {
             "adviseur_id": data["adviseur_id"],
