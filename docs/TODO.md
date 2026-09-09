@@ -245,3 +245,13 @@
   bevestiging de echte aanvraag. Geverifieerd met een los testscript (geen DB-aanroep in dit pad):
   correcte resolutie voor alle combinaties (prod zonder override, test met default-override, expliciete
   env-var-override).
+- [x] **4-uursmarge server-side afgedwongen (2026-09-09):** `[dbo].[spWijzigAfspraakDatumTijd]` weigert
+  een nieuwe datum/tijd binnen 4 uur en meldt dat via de nieuwe OUTPUT-parameter `@validatiefout`;
+  `/wijzig_opslaan` antwoordt daarop met HTTP 400 en de letterlijke SP-tekst. Tijdzone expliciet via
+  `SYSDATETIMEOFFSET() AT TIME ZONE 'W. Europe Standard Time'` omdat Azure SQL in UTC staat. **De SQL
+  moet nog uitgevoerd worden** (`sql/spWijzigAfspraakDatumTijd.sql` of `sql/alles_in_1_wijzig_afspraak.sql`)
+  én `function_app.py` moet gedeployed worden — anders faalt de EXEC op de nieuwe parameter.
+- [ ] **Optioneel: "Afspraak niet gevonden." ook via `@validatiefout` teruggeven.** Dat is net als de
+  marge een gecontroleerde, aan de klant te tonen weigering, maar loopt nu nog via `@foutmelding` en
+  dus via de generieke HTTP 500. Bewust niet meegenomen bij de marge-wijziging van 2026-09-09 om het
+  gedrag van een bestaand, werkend pad niet ongevraagd te veranderen.

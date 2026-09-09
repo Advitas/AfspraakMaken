@@ -168,6 +168,16 @@ Body: { afspraak_id, adviseur_id, datum, tijd, duur_kwartieren, vorm_afspraak, r
 Gedrag: roept direct [dbo].[spWijzigAfspraakDatumTijd] aan met de meegestuurde afspraak_id. Die
 procedure ruimt de bijbehorende pincode-rij zelf op bij succes (one-time use, opgeruimd op afspraak_id).
 
+Marge van 4 uur (2026-09-09, "echt afdwingen"): de procedure weigert een nieuwe datum/tijd die minder
+dan 4 uur in de toekomst ligt en geeft dat terug via de OUTPUT-parameter @validatiefout (los van
+@foutmelding). Dit endpoint antwoordt daarop met HTTP 400 en { "error": "<letterlijke tekst uit de
+SP>" }, zodat AgendaPicker die tekst rechtstreeks aan de klant kan tonen; @foutmelding blijft
+voorbehouden aan onverwachte fouten en houdt zijn generieke HTTP 500. De SP rekent de servertijd
+expliciet om naar Nederlandse tijd (SYSDATETIMEOFFSET() AT TIME ZONE 'W. Europe Standard Time'),
+omdat Azure SQL zelf in UTC staat en de marge er anders 1-2 uur naast zou zitten. De AgendaPicker-
+frontend filtert zulke sloten al weg, maar dat is puur UI - deze SP is het enige schrijfpad en dus de
+plek waar de marge werkelijk wordt afgedwongen.
+
 LET OP (2026-09-07, bewuste afwijking van het beveiligingsmodel hierboven): dit endpoint controleert
 GEEN pincode meer — afspraak_id komt rechtstreeks van de client i.p.v. server-side afgeleid uit een
 hervalidatie van de pincode. Voorheen (zoals /wijzig_verificatie hierboven nog doet) werd afspraak_id

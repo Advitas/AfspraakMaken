@@ -1620,7 +1620,7 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
         DECLARE @oud_adviseur_id INT, @oud_datum DATE, @oud_tijd TIME,
                 @klant_id INT, @klant_naam NVARCHAR(255),
                 @oud_adviseur_naam NVARCHAR(255), @nieuw_adviseur_naam NVARCHAR(255),
-                @foutmelding NVARCHAR(500);
+                @validatiefout NVARCHAR(500), @foutmelding NVARCHAR(500);
 
         EXEC [dbo].[spWijzigAfspraakDatumTijd]
             @afspraak_id = ?,
@@ -1636,12 +1636,13 @@ def _call_sp_wijzig_afspraak(cursor, data: dict) -> dict:
             @klant_naam = @klant_naam OUTPUT,
             @oud_adviseur_naam = @oud_adviseur_naam OUTPUT,
             @nieuw_adviseur_naam = @nieuw_adviseur_naam OUTPUT,
+            @validatiefout = @validatiefout OUTPUT,
             @foutmelding = @foutmelding OUTPUT;
 
         SELECT @oud_adviseur_id AS oud_adviseur_id, @oud_datum AS oud_datum, @oud_tijd AS oud_tijd,
                @klant_id AS klant_id, @klant_naam AS klant_naam,
                @oud_adviseur_naam AS oud_adviseur_naam, @nieuw_adviseur_naam AS nieuw_adviseur_naam,
-               @foutmelding AS foutmelding;
+               @validatiefout AS validatiefout, @foutmelding AS foutmelding;
         """,
         data["afspraak_id"],
         data["adviseur_id"],
@@ -1864,6 +1865,20 @@ def wijzig_opslaan(req: func.HttpRequest) -> func.HttpResponse:
         }
 
         sp_result = _call_sp_wijzig_afspraak(cursor, sp_data)
+
+        # @validatiefout is een gecontroleerde, aan de klant te tonen weigering (nu: de 4-uursmarge,
+        # zie sql/spWijzigAfspraakDatumTijd.sql) — geen technische fout. Vandaar HTTP 400 met de
+        # letterlijke Nederlandse tekst uit de SP, zodat AgendaPicker die rechtstreeks kan tonen.
+        # @foutmelding blijft voorbehouden aan onverwachte fouten en houdt zijn generieke 500.
+        validatiefout = sp_result["output"].get("validatiefout")
+        if validatiefout:
+            conn.rollback()
+            return func.HttpResponse(
+                json.dumps({"error": str(validatiefout)}),
+                status_code=400,
+                mimetype="application/json",
+            )
+
         foutmelding = sp_result["output"].get("foutmelding")
 
         if foutmelding:

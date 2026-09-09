@@ -49,6 +49,7 @@ CREATE OR ALTER PROCEDURE [dbo].[spWijzigAfspraakDatumTijd]
   @klant_naam           nvarchar(255) OUTPUT,
   @oud_adviseur_naam    nvarchar(255) OUTPUT,
   @nieuw_adviseur_naam  nvarchar(255) OUTPUT,
+  @validatiefout    nvarchar(500) OUTPUT,
   @foutmelding      nvarchar(500) OUTPUT
 AS
 BEGIN
@@ -56,6 +57,7 @@ BEGIN
   SET XACT_ABORT ON;
 
   SET @foutmelding = NULL;
+  SET @validatiefout = NULL;
 
   -- Normaliseer 'online'/'buitendienst' (zoals de Python-laag ze aanlevert) naar de
   -- Titel-case-schrijfwijze die [dbo].[Afspraak].[vorm_afspraak] gebruikt.
@@ -71,6 +73,29 @@ BEGIN
   DECLARE @datumTijd datetime2 = CAST(
     CONVERT(varchar(10), @datum, 120) + ' ' + CONVERT(varchar(8), @tijd, 108) AS datetime2
   );
+
+  -- Een wijziging naar een moment dat (bijna) voorbij is wordt hier hard geweigerd. De AgendaPicker-
+  -- frontend biedt zulke sloten al niet meer aan (KEUZE_MARGE_UREN in public/wijzig-afspraak.js, zie
+  -- AgendaPicker ADR-024), maar dat is puur een UI-filter: de klant kan de pagina uren laten
+  -- openstaan of de API rechtstreeks aanroepen. Deze SP is het enige schrijfpad naar
+  -- [dbo].[Afspraak] voor een zelfservice-wijziging en dus de plek waar de marge werkelijk
+  -- afgedwongen wordt (verzoek gebruiker 2026-09-09: "echt afdwingen").
+  --
+  -- SYSDATETIMEOFFSET() ... AT TIME ZONE maakt de conversie naar Nederlandse tijd expliciet en
+  -- DST-correct: [datum_adviesgesprek]/[tijd_adviesgesprek] staan in Nederlandse lokale tijd, terwijl
+  -- de servertijd van Azure SQL UTC is. Zonder die conversie zou de marge er in de zomer 2 uur (in de
+  -- winter 1 uur) naast zitten, en dus te soepel zijn.
+  DECLARE @margeUren int = 4;
+  DECLARE @nuNederland datetime2(0) =
+    CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'W. Europe Standard Time' AS datetime2(0));
+
+  IF @datumTijd < DATEADD(hour, @margeUren, @nuNederland)
+  BEGIN
+    SET @validatiefout = N'De nieuwe datum en tijd moeten minstens '
+      + CAST(@margeUren AS nvarchar(10))
+      + N' uur in de toekomst liggen. Kies een later tijdstip.';
+    RETURN;
+  END;
 
   -- Nesting-safe transactiebeheer: deze SP wordt aangeroepen via pyodbc met autocommit=False, dus
   -- de caller heeft meestal al een ambient transactie open (@@TRANCOUNT = 1) vóórdat deze SP start.

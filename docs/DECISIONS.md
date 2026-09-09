@@ -808,3 +808,47 @@ en doet pas bij bevestiging de echte aanvraag. Geverifieerd met een los testscri
 dit pad, geen `conn`/`cursor` gebruikt): correcte resolutie voor `run=prod` zonder override (eigen
 e-mailadres), `run=test` zonder env var (default naar `rvader@advitas.nl`), en met een expliciete env
 var (wint altijd, ongeacht `run`).
+
+---
+
+## 2026-09-09 — 4-uursmarge server-side afgedwongen in spWijzigAfspraakDatumTijd (@validatiefout)
+
+**Context:** AgendaPicker filtert sinds vandaag datums/tijden binnen 4 uur weg uit het wijzig-datumgrid
+(AgendaPicker ADR-024), maar dat is een UI-filter: een klant met de pagina urenlang open, of iemand die
+`/wijzig_opslaan` rechtstreeks aanroept, kon nog steeds een moment in het verleden opslaan. Gevraagd
+door de gebruiker: *"echt afdwingen"*.
+
+**Beslissing:** de marge wordt afgedwongen in `[dbo].[spWijzigAfspraakDatumTijd]` — het enige
+schrijfpad naar `[dbo].[Afspraak]` voor een zelfservice-wijziging, conform de projectregel dat alle
+writes via stored procedures lopen. Vóór `BEGIN TRANSACTION` (dus zonder rollback-complicaties, zie de
+transactie-ADR van 2026-09-07) vergelijkt de SP `@datumTijd` met `nu + @margeUren` (4).
+
+Twee keuzes daarbij:
+
+1. **Tijdzone expliciet in T-SQL:** `CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'W. Europe Standard Time' AS
+   datetime2(0))`. `[datum_adviesgesprek]`/`[tijd_adviesgesprek]` staan in Nederlandse lokale tijd,
+   terwijl Azure SQL zelf in UTC staat — met `SYSDATETIME()`/`GETDATE()` zou de marge er in de zomer 2
+   uur (winter 1 uur) naast zitten en dus te soepel zijn. `AT TIME ZONE` regelt ook de zomertijd zelf,
+   dus er is geen hardcoded offset. Bewust NIET in Python gecontroleerd: `zoneinfo` heeft op de
+   Functions-host een tz-database nodig (`tzdata` is geen dependency van dit project) en
+   `datetime.now()` is daar UTC — een tweede, mogelijk afwijkende tijdzone-implementatie in een tweede
+   laag levert alleen maar afwijkingsrisico op.
+2. **Nieuwe OUTPUT-parameter `@validatiefout` naast `@foutmelding`.** `@foutmelding` leidt in
+   `function_app.py` tot een generieke HTTP 500 ("Stored procedure gaf een foutmelding.") — passend
+   voor onverwachte fouten, maar niet voor een gecontroleerde weigering die de klant moet lezen.
+   `@validatiefout` is expliciet aan-de-klant-te-tonen: `/wijzig_opslaan` doet `conn.rollback()` en
+   antwoordt met HTTP 400 en `{"error": "<letterlijke tekst uit de SP>"}`. Zo is er één bron voor de
+   marge (de SP) en één bron voor de tekst (ook de SP), en hoeft de foutafhandeling van bestaande
+   `@foutmelding`-paden niet te veranderen. De bestaande melding "Afspraak niet gevonden." is bewust
+   NIET verplaatst naar `@validatiefout` — dat zou het gedrag van een al werkend pad wijzigen zonder
+   dat erom gevraagd is (staat als optie in docs/TODO.md).
+
+**Gevolgen:** geverifieerd met een mock-test op `/wijzig_opslaan` (`_call_sp_wijzig_afspraak` en
+`_get_connection` gestubd): `validatiefout` → HTTP 400 met exact de SP-tekst + `rollback()` en geen
+commit; alleen `foutmelding` → onveranderd HTTP 500 generiek + rollback; geen van beide → HTTP 200 +
+commit. De SQL zelf is nog niet tegen een database gedraaid — **de gebruiker moet
+`sql/spWijzigAfspraakDatumTijd.sql` (of `sql/alles_in_1_wijzig_afspraak.sql`) opnieuw uitvoeren**,
+anders geeft de nieuwe EXEC-aanroep "@validatiefout is not a parameter for procedure
+spWijzigAfspraakDatumTijd" — dezelfde valkuil als bij eerdere signatuur-uitbreidingen deze week. De
+SP-body in `sql/alles_in_1_wijzig_afspraak.sql` is regel-voor-regel identiek gehouden aan het losse
+bestand (geverifieerd met een diff die comments negeert).
