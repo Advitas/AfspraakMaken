@@ -139,13 +139,6 @@ BEGIN
     DECLARE @adres_sleutel INT;
     DECLARE @klanten_postcode NVARCHAR(10);
 
-    SELECT TOP 1 @klant_id = [klant_id], @klanten_postcode = [postcode]
-    FROM [dbo].[Klanten]
-    WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)));
-
-    IF @klant_id IS NULL
-        RETURN;
-
     SELECT TOP 1 @open_state_id = [afspraakstate-id]
     FROM [dbo].[Status afspraak]
     WHERE [afspraakstate_label] = N'Open';
@@ -153,19 +146,31 @@ BEGIN
     IF @open_state_id IS NULL
         RETURN;
 
+    -- LET OP (2026-09-09): één e-mailadres kan op MEERDERE rijen in [dbo].[Klanten] staan (in
+    -- productie aangetroffen: hetzelfde adres op klant_id 55567 én 651059, waarvan alleen de laatste
+    -- een openstaande afspraak had). Daarom wordt hier NIET eerst één klant gekozen en daarna diens
+    -- afspraken opgezocht: dat deed voorheen een TOP 1 op [dbo].[Klanten] zonder ORDER BY, landde op
+    -- de klant zonder afspraak en gaf dus "geen afspraak gevonden" terwijl de afspraak er wél was.
+    -- In plaats daarvan zoeken we de afspraak rechtstreeks, over alle klantrijen met dit e-mailadres,
+    -- en leiden we klant_id/postcode af uit de gevonden afspraak. [afspraak-id] als laatste
+    -- tiebreaker maakt de keuze deterministisch bij exact gelijke datum+tijd.
     SELECT TOP 1
-        @afspraak_id = [afspraak-id],
-        @adviseur_id = [adviseur_id],
-        @datum = CAST([datum_adviesgesprek] AS date),
-        @tijd = CAST([tijd_adviesgesprek] AS time),
-        @duur_kwartieren = [duur],
-        @vorm_afspraak = [vorm_afspraak],
-        @adres_sleutel = [adres_sleutel]
-    FROM [dbo].[Afspraak]
-    WHERE [klant_id] = @klant_id
-      AND [afspraakstate-id] = @open_state_id
-      AND [datum_adviesgesprek] >= CAST(GETDATE() AS date)
-    ORDER BY [datum_adviesgesprek] ASC, [tijd_adviesgesprek] ASC;
+        @afspraak_id = a.[afspraak-id],
+        @adviseur_id = a.[adviseur_id],
+        @datum = CAST(a.[datum_adviesgesprek] AS date),
+        @tijd = CAST(a.[tijd_adviesgesprek] AS time),
+        @duur_kwartieren = a.[duur],
+        @vorm_afspraak = a.[vorm_afspraak],
+        @adres_sleutel = a.[adres_sleutel],
+        @klant_id = k.[klant_id],
+        @klanten_postcode = k.[postcode]
+    FROM [dbo].[Afspraak] AS a
+    INNER JOIN [dbo].[Klanten] AS k
+        ON k.[klant_id] = a.[klant_id]
+    WHERE LOWER(LTRIM(RTRIM(k.[email]))) = LOWER(LTRIM(RTRIM(@email)))
+      AND a.[afspraakstate-id] = @open_state_id
+      AND a.[datum_adviesgesprek] >= CAST(GETDATE() AS date)
+    ORDER BY a.[datum_adviesgesprek] ASC, a.[tijd_adviesgesprek] ASC, a.[afspraak-id] ASC;
 
     IF @afspraak_id IS NOT NULL
     BEGIN

@@ -255,3 +255,18 @@
   marge een gecontroleerde, aan de klant te tonen weigering, maar loopt nu nog via `@foutmelding` en
   dus via de generieke HTTP 500. Bewust niet meegenomen bij de marge-wijziging van 2026-09-09 om het
   gedrag van een bestaand, werkend pad niet ongevraagd te veranderen.
+- [x] **Dubbele klantrecords met hetzelfde e-mailadres braken de pincode-aanvraag (2026-09-09):**
+  `spZoekAfspraakVoorWijziging` koos eerst één klant via `TOP 1` op `[dbo].[Klanten]` zonder `ORDER BY`
+  en kon daardoor op een klantrij zonder openstaande afspraak landen (praktijkgeval: klant_id 55567 vs
+  651059). De SP joint nu `[dbo].[Afspraak]` met `[dbo].[Klanten]` en zoekt over alle klantrijen met dat
+  e-mailadres, met `[afspraak-id]` als tiebreaker. **SQL moet opnieuw uitgevoerd worden.**
+- [ ] **Datakwaliteit (buiten dit project): dubbele klantrecords met hetzelfde e-mailadres.** In
+  productie aangetroffen op 2026-09-09 (klant_id 55567 en 651059 met hetzelfde adres). De wijzigpagina
+  gaat er nu netjes mee om, maar dit raakt vermoedelijk meer processen dan alleen deze — hoort in de
+  CRM-kant opgelost te worden.
+- [ ] **Aanname om te bevestigen: `[tijd_adviesgesprek]` bevat in bestaande productierijen alléén het
+  tijdsdeel** (waarden als `1900-01-01 10:30:00`, gezien in de query-output van 2026-09-09), terwijl
+  `spWijzigAfspraakDatumTijd` er de VOLLE datum+tijd in schrijft (patroon overgenomen uit
+  `usp_Reservering_OmzettenNaarAfspraak`). Na een zelfservice-wijziging wijkt de rij dus af van hoe de
+  rest van de rijen gevuld is. Uitzoeken of iets dat leest (Power BI-agenda's, planning-tooling) daarop
+  vertrouwt, en zo nodig `CAST(@tijd AS datetime2)` schrijven i.p.v. `@datumTijd`.

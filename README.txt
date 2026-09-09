@@ -135,7 +135,10 @@ POST /api/wijzig_aanvraag (of /wijzig_aanvraag als routePrefix leeg staat)
 (underscore, niet koppelteken — bewust gelijkgetrokken met de Python-functienaam, zie docs/DECISIONS.md)
 Body: { email, run, preview }
 Gedrag: zoekt via [dbo].[spZoekAfspraakVoorWijziging] de eerstvolgende toekomstige afspraak met status
-'Open' voor dit e-mailadres. Geen afspraak gevonden: HTTP 404, geen mail verstuurd (voorkomt dat je via
+'Open' voor dit e-mailadres. Die zoektocht loopt over ALLE [dbo].[Klanten]-rijen met dit
+e-mailadres: in productie bleek hetzelfde adres op meerdere klant_id's te staan, waarvan maar één een
+openstaande afspraak had (2026-09-09) — de SP koos eerst één klant via TOP 1 zonder ORDER BY en gaf
+daardoor onterecht "geen afspraak gevonden". Geen afspraak gevonden: HTTP 404, geen mail verstuurd (voorkomt dat je via
 deze route kunt achterhalen welke e-mailadressen wel/niet klant zijn). Wel gevonden: genereert een
 6-cijferige pincode (5 min geldig, max 5 pogingen — bewaakt in SQL, zie [dbo].[WijzigAfspraakPincodes]),
 slaat die op via [dbo].[spBewaarWijzigPincode], en mailt alleen de pincode (geen knop/link — de klant

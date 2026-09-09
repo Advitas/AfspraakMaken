@@ -852,3 +852,41 @@ anders geeft de nieuwe EXEC-aanroep "@validatiefout is not a parameter for proce
 spWijzigAfspraakDatumTijd" — dezelfde valkuil als bij eerdere signatuur-uitbreidingen deze week. De
 SP-body in `sql/alles_in_1_wijzig_afspraak.sql` is regel-voor-regel identiek gehouden aan het losse
 bestand (geverifieerd met een diff die comments negeert).
+
+---
+
+## 2026-09-09 — spZoekAfspraakVoorWijziging: zoeken over alle klantrijen met hetzelfde e-mailadres
+
+**Context:** een klant kon de wijzigpagina niet gebruiken; AgendaPicker toonde "Pincode-aanvraag gaf een
+foutmelding." De query die de gebruiker daarna op de database uitvoerde liet zien waarom: hetzelfde
+e-mailadres staat op **twee** rijen in `[dbo].[Klanten]` — klant_id 55567 (twee oude afspraken, status
+'Bezocht') en klant_id 651059 (afspraak 122764 op 2026-09-18, status 'Open'). De SP koos eerst één klant
+met `SELECT TOP 1 ... FROM [dbo].[Klanten] WHERE email = @email` **zonder ORDER BY**, landde op 55567,
+zocht diens openstaande toekomstige afspraken, vond er geen en gaf `@gevonden = 0` → HTTP 404. Zonder
+`ORDER BY` is de gekozen rij niet gedefinieerd, dus dit gedrag kon per uitvoering of na een indexwijziging
+zelfs verschillen.
+
+**Beslissing:** de klant-eerst-dan-afspraak-opzet is omgedraaid. De SP zoekt nu de afspraak
+rechtstreeks met een `INNER JOIN` van `[dbo].[Afspraak]` op `[dbo].[Klanten]`, filtert op het
+e-mailadres over alle klantrijen, en leidt `@klant_id`/`@klanten_postcode` af uit de gevonden
+afspraakrij. `ORDER BY datum_adviesgesprek, tijd_adviesgesprek, [afspraak-id]` maakt de keuze
+deterministisch (de `[afspraak-id]`-tiebreaker is nieuw; voorheen was de keuze bij exact gelijke
+datum+tijd willekeurig).
+
+Consequentie die bewust geaccepteerd is: staat een e-mailadres op twee klantrecords die **beide** een
+openstaande toekomstige afspraak hebben, dan wordt de vroegste van de twee gekozen, ongeacht bij welke
+klant die hoort. Dat is voor deze zelfservicepagina de juiste uitkomst (de klant wil zijn eerstvolgende
+afspraak wijzigen), maar het onderliggende datakwaliteitsprobleem — dubbele klantrecords met hetzelfde
+e-mailadres — lost dit niet op en hoort in de CRM-kant thuis.
+
+**Niet geraakt:** `[dbo].[spValideerWijzigPincode]` heeft dit probleem niet. Die leest de
+pincode-rij uit `[dbo].[WijzigAfspraakPincodes]` (op e-mailadres, nieuwste eerst) en neemt het
+`afspraak_id` uit die rij over; de klant/postcode worden daarna via `[dbo].[Afspraak].[klant_id]`
+opgezocht. De aanvraag bepaalt dus welke afspraak het is, en de validatie volgt die keuze — beide
+stappen kunnen niet meer op een andere klant uitkomen.
+
+**Gevolgen:** de SP-body in `sql/alles_in_1_wijzig_afspraak.sql` is regel-voor-regel identiek gehouden
+aan `sql/spZoekAfspraakVoorWijziging.sql` (diff-gecontroleerd, comments genegeerd). **De SQL moet
+opnieuw uitgevoerd worden** voordat dit effect heeft. Daarna is de test: pincode aanvragen voor het
+e-mailadres uit dit praktijkgeval hoort afspraak 122764 (18 september, 10:30) te vinden in plaats van
+een 404.

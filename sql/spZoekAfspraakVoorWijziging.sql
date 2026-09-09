@@ -16,9 +16,13 @@ de eerdere aannames over [dbo].[Afspraak]):
    worden.
 3) '[afspraakstate-id]'/'[Status afspraak]'/'afspraakstate_label' = 'Open' zijn WEL bevestigd (rechtstreeks
    overgenomen uit [PowerBI].[usp_Reservering_OmzettenNaarAfspraak], aangeleverd 2026-09-03).
-4) "Eerstvolgende toekomstige afspraak" = kleinste datum_adviesgesprek >= vandaag met status Open. Bij
-   meerdere gelijktijdige afspraken voor dezelfde klant wordt er willekeurig één gekozen (geen expliciete
-   tiebreaker anders dan tijd) — laat weten of dat businessmatig anders moet.
+4) "Eerstvolgende toekomstige afspraak" = kleinste datum_adviesgesprek >= vandaag met status Open,
+   met [afspraak-id] als laatste tiebreaker zodat de keuze deterministisch is bij exact gelijke
+   datum+tijd. LET OP: er wordt gezocht over ALLE [dbo].[Klanten]-rijen met dit e-mailadres, niet
+   binnen één klant — in productie bleek hetzelfde adres op meerdere klant_id's te staan (2026-09-09,
+   klant_id 55567 én 651059), waarbij alleen de laatste een openstaande afspraak had. Gevolg van deze
+   opzet: staat het adres op twee klantrecords die elk een openstaande toekomstige afspraak hebben,
+   dan wordt de vroegste van de twee gekozen, ongeacht bij welke klant die hoort.
 5) @postcode (alleen relevant bij vorm_afspraak=buitendienst, nodig voor de beschikbaarheids-kalender;
    mag NULL zijn voor online-afspraken) komt primair uit het afspraak-adres zelf:
    [dbo].[Afspraak].[adres_sleutel] (underscore, FK-conventie zoals klant_id/adviseur_id) verwijst naar
@@ -56,13 +60,6 @@ BEGIN
     DECLARE @adres_sleutel INT;
     DECLARE @klanten_postcode NVARCHAR(10);
 
-    SELECT TOP 1 @klant_id = [klant_id], @klanten_postcode = [postcode]
-    FROM [dbo].[Klanten]
-    WHERE LOWER(LTRIM(RTRIM([email]))) = LOWER(LTRIM(RTRIM(@email)));
-
-    IF @klant_id IS NULL
-        RETURN;
-
     SELECT TOP 1 @open_state_id = [afspraakstate-id]
     FROM [dbo].[Status afspraak]
     WHERE [afspraakstate_label] = N'Open';
@@ -70,19 +67,31 @@ BEGIN
     IF @open_state_id IS NULL
         RETURN;
 
+    -- LET OP (2026-09-09): één e-mailadres kan op MEERDERE rijen in [dbo].[Klanten] staan (in
+    -- productie aangetroffen: hetzelfde adres op klant_id 55567 én 651059, waarvan alleen de laatste
+    -- een openstaande afspraak had). Daarom wordt hier NIET eerst één klant gekozen en daarna diens
+    -- afspraken opgezocht: dat deed voorheen een TOP 1 op [dbo].[Klanten] zonder ORDER BY, landde op
+    -- de klant zonder afspraak en gaf dus "geen afspraak gevonden" terwijl de afspraak er wél was.
+    -- In plaats daarvan zoeken we de afspraak rechtstreeks, over alle klantrijen met dit e-mailadres,
+    -- en leiden we klant_id/postcode af uit de gevonden afspraak. [afspraak-id] als laatste
+    -- tiebreaker maakt de keuze deterministisch bij exact gelijke datum+tijd.
     SELECT TOP 1
-        @afspraak_id = [afspraak-id],
-        @adviseur_id = [adviseur_id],
-        @datum = CAST([datum_adviesgesprek] AS date),
-        @tijd = CAST([tijd_adviesgesprek] AS time),
-        @duur_kwartieren = [duur],
-        @vorm_afspraak = [vorm_afspraak],
-        @adres_sleutel = [adres_sleutel]
-    FROM [dbo].[Afspraak]
-    WHERE [klant_id] = @klant_id
-      AND [afspraakstate-id] = @open_state_id
-      AND [datum_adviesgesprek] >= CAST(GETDATE() AS date)
-    ORDER BY [datum_adviesgesprek] ASC, [tijd_adviesgesprek] ASC;
+        @afspraak_id = a.[afspraak-id],
+        @adviseur_id = a.[adviseur_id],
+        @datum = CAST(a.[datum_adviesgesprek] AS date),
+        @tijd = CAST(a.[tijd_adviesgesprek] AS time),
+        @duur_kwartieren = a.[duur],
+        @vorm_afspraak = a.[vorm_afspraak],
+        @adres_sleutel = a.[adres_sleutel],
+        @klant_id = k.[klant_id],
+        @klanten_postcode = k.[postcode]
+    FROM [dbo].[Afspraak] AS a
+    INNER JOIN [dbo].[Klanten] AS k
+        ON k.[klant_id] = a.[klant_id]
+    WHERE LOWER(LTRIM(RTRIM(k.[email]))) = LOWER(LTRIM(RTRIM(@email)))
+      AND a.[afspraakstate-id] = @open_state_id
+      AND a.[datum_adviesgesprek] >= CAST(GETDATE() AS date)
+    ORDER BY a.[datum_adviesgesprek] ASC, a.[tijd_adviesgesprek] ASC, a.[afspraak-id] ASC;
 
     IF @afspraak_id IS NOT NULL
     BEGIN
