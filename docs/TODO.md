@@ -280,3 +280,7 @@
   `_handle_availability` doet weer één `_call_sp_dynamic` voor beide vormen. Eén EXEC in plaats van
   maximaal 31. **`function_app.py` moet gedeployed worden**; zonder deploy blijft de oude loop draaien,
   die met de nieuwe SP nog steeds correct werkt.
+- [x] **`vorm_afspraak=beide` op /availability (2026-09-10):** online- en buitendienst-sloten in één
+  dataset via `psAgendaPicker_GetAvailabilityGecombineerd`. Geen nieuwe route: de bestaande dispatcher
+  in `_prepare_availability_call` kiest de SP. Postcode optioneel, `agenda` alleen leeg of `hypotheek`.
+  **Werkt pas na het uitvoeren van die SQL (AgendaPicker-repo) en een deploy van `function_app.py`.**

@@ -978,8 +978,8 @@ def reservering(req: func.HttpRequest) -> func.HttpResponse:
 def _prepare_availability_call(payload: dict) -> tuple[str, dict]:
     vorm_afspraak = str(payload.get("vorm_afspraak") or "online").strip().lower()
 
-    if vorm_afspraak not in {"online", "buitendienst"}:
-        raise ValidationError("Parameter 'vorm_afspraak' moet 'online' of 'buitendienst' zijn.")
+    if vorm_afspraak not in {"online", "buitendienst", "beide"}:
+        raise ValidationError("Parameter 'vorm_afspraak' moet 'online', 'buitendienst' of 'beide' zijn.")
 
     if vorm_afspraak == "buitendienst":
         postcode = str(payload.get("postcode") or "").strip()
@@ -989,6 +989,33 @@ def _prepare_availability_call(payload: dict) -> tuple[str, dict]:
         sp_payload = dict(payload)
         sp_payload.setdefault("postcode4", postcode)
         return "psAgendaPicker_GetAvailabilityBuitendienst", sp_payload
+
+    # 'beide' (2026-09-10): online- en buitendienst-sloten in één result set, met per rij een
+    # [vorm_afspraak]-kolom. Dit is een dunne wrapper-SP om de twee bestaande SP's heen - zie
+    # AgendaPicker's sql/psAgendaPicker_GetAvailabilityGecombineerd.sql en ADR-029 daar.
+    if vorm_afspraak == "beide":
+        # De gecombineerde SP geldt uitsluitend voor de hypotheek-agenda (die roept de online-SP
+        # altijd met 'hypotheek' aan) en heeft dus geen @Agenda-parameter. Een andere agenda stil
+        # negeren zou een verkeerde dataset opleveren zonder dat de aanroeper het merkt.
+        agenda = str(payload.get("agenda") or "").strip().lower()
+        if agenda and agenda != "hypotheek":
+            raise ValidationError(
+                "Parameter 'agenda' kan bij vorm_afspraak='beide' alleen 'hypotheek' zijn: de "
+                "gecombineerde procedure is uitsluitend voor de hypotheek-agenda."
+            )
+
+        sp_payload = dict(payload)
+
+        # De postcode is hier optioneel, anders dan bij 'buitendienst'. Zonder postcode is er geen
+        # regio en levert de SP alleen de online-sloten - een geldige situatie voor een klant van wie
+        # geen adres bekend is.
+        postcode = str(payload.get("postcode") or "").strip()
+        if postcode:
+            if not re.fullmatch(r"\d{4}", postcode):
+                raise ValidationError("Parameter 'postcode' moet uit exact 4 cijfers bestaan.")
+            sp_payload.setdefault("postcode4", postcode)
+
+        return "psAgendaPicker_GetAvailabilityGecombineerd", sp_payload
 
     return "psAgendaPicker_GetAvailability", payload
 

@@ -956,3 +956,38 @@ blijven het `('2026-09-01', '1234')`. De rijvorm met `AfspraakDatum` per rij kom
 Python-laag, dus **`function_app.py` moet gedeployed worden**; tot die tijd blijft de oude dag-voor-dag-
 loop draaien, die met de nieuwe SP nog steeds correct werkt (hij stuurt `MonthView` juist niet mee en
 vraagt per dag op) - er is dus geen strakke deploy-volgorde nodig.
+
+---
+
+## 2026-09-10 - vorm_afspraak=beide op /availability in plaats van een aparte route
+
+**Context:** de gebruiker wilde de gecombineerde availability-SP (online + buitendienst in één result
+set) ook via een endpoint kunnen aanroepen: *"graag die wil ook als endpoint"*.
+
+**Beslissing:** geen nieuwe route, maar een derde waarde voor de bestaande parameter:
+`vorm_afspraak=beide` op `/availability`. `_prepare_availability_call` is al een dispatcher die op
+`vorm_afspraak` de juiste stored procedure kiest, dus dit past precies in dat patroon. Winst: alle
+parameterafhandeling, validatie, foutafhandeling en de `_debug`-meta blijven identiek, en AgendaPicker's
+proxy hoefde alleen die derde waarde toe te laten in plaats van een hele nieuwe route te krijgen.
+
+Twee bewuste verschillen met de andere twee vormen:
+
+- **`postcode` is optioneel.** Bij `buitendienst` is hij verplicht; bij `beide` levert de SP zonder
+  postcode alleen de online-sloten, wat een geldige uitkomst is. Is de postcode er wel, dan wordt hij
+  net zo streng gevalideerd - een typefout mag niet stil tot een online-only dataset leiden.
+- **`agenda` mag alleen leeg of `'hypotheek'` zijn.** De gecombineerde SP roept de online-SP altijd met
+  `'hypotheek'` aan en heeft geen `@Agenda`-parameter. Een meegegeven `vermogen` of `schade` stil
+  negeren zou de aanroeper een dataset geven die niet bij zijn vraag past, dus dat is een HTTP 400 met
+  uitleg.
+
+`adviseur_id` en `duur_kwartieren` worden niet doorgegeven: die SP kent ze niet en de dynamische
+parametermatching op `sys.parameters` laat ze daarom automatisch weg. Dat is geen fout maar het
+bestaande mechanisme.
+
+**Gevolgen:** geverifieerd met een testscript op `_prepare_availability_call` (11 gevallen): de drie
+vormen kiezen de juiste procedure, `postcode4` wordt alleen gezet als er een postcode is,
+`buitendienst` zonder postcode blijft een fout, `beide` met `agenda=vermogen` geeft de nieuwe
+foutmelding, een foute postcode bij `beide` wordt afgewezen, hoofdletters (`BEIDE`) werken, en een
+onbekende vorm geeft de bijgewerkte foutmelding. **Werkt pas na het uitvoeren van
+`sql/psAgendaPicker_GetAvailabilityGecombineerd.sql`** in de AgendaPicker-repo en na een deploy van
+`function_app.py`.

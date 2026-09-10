@@ -123,6 +123,21 @@ GET/POST /availability
   loop meer (_call_buitendienst_month_view is verwijderd): online en buitendienst lopen weer via
   hetzelfde pad, namelijk een enkele _call_sp_dynamic-aanroep waarin MonthView net als elke andere
   parameter dynamisch gematcht wordt.
+- vorm_afspraak=beide (2026-09-10): online- en buitendienst-sloten in EEN dataset, met per rij
+  een [vorm_afspraak]-kolom ('Online'/'Buitendienst'). Roept
+  [dbo].[psAgendaPicker_GetAvailabilityGecombineerd] aan, een dunne wrapper om de twee
+  bestaande availability-SP's (zie AgendaPicker sql/ en ADR-029 daar). Verschillen met de
+  andere twee vormen:
+    * postcode is OPTIONEEL. Zonder postcode is er geen regio en komen er alleen online-sloten
+      terug - een geldige situatie voor een klant van wie geen adres bekend is. Is de postcode
+      er wel, dan moet hij uit 4 cijfers bestaan.
+    * agenda mag alleen leeg of 'hypotheek' zijn. De gecombineerde SP roept de online-SP altijd
+      met 'hypotheek' aan en heeft geen @Agenda-parameter; een andere agenda stil negeren zou
+      een verkeerde dataset opleveren, dus dat geeft HTTP 400.
+    * adviseur_id en duur_kwartieren worden niet doorgegeven (die SP kent ze niet) - de
+      dynamische parametermatching laat ze automatisch weg.
+  LET OP: werkt pas als sql/psAgendaPicker_GetAvailabilityGecombineerd.sql (AgendaPicker-repo)
+  is uitgevoerd; tot dan geeft deze vorm een SQL-fout dat de procedure niet bestaat.
 
 Volledige handleiding:
 Zie USER_MANUAL.md
