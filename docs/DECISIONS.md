@@ -923,3 +923,36 @@ en beide leeg geeft de bestaande em-dash-terugval. **De SQL moet opnieuw uitgevo
 `function_app.py` moet gedeployed worden; zolang alleen de SQL gedraaid is, ontbreekt de parameter in de
 EXEC-aanroep en faalt opslaan ("expects parameter '@oud_vorm_afspraak'") - zelfde valkuil als bij eerdere
 signatuur-uitbreidingen deze week.
+
+---
+
+## 2026-09-10 - Dag-voor-dag-loop voor buitendienst-availability verwijderd (SP kent nu MonthView)
+
+**Context:** de gebruiker heeft `[dbo].[psAgendaPicker_GetAvailabilityBuitendienst]` uitgebreid met een
+`@MonthView BIT = 0`-parameter en de SP-definitie aangeleverd. Met `@MonthView = 1` geeft de SP de hele
+kalendermaand van `@Date` terug, met `[AgendaDate]` als `AfspraakDatum` per rij en gegroepeerd op datum
++ tijdslot. Daarmee valt de aanname weg waarop de ADR van 2026-09-07 rustte, namelijk dat de SP alleen
+maar een enkele dag kon leveren. Verzoek: *"de sp heeft nu een monthview parameter. Dat is volgens mij
+efficienter. graag aanpassen"* - en dat is het ook: één EXEC in plaats van maximaal 31.
+
+**Beslissing:** `_call_buitendienst_month_view` en `_is_month_view_requested` zijn verwijderd, net als
+de `if procedure_name == ... and _is_month_view_requested(...)`-tak in `_handle_availability`. Er is nu
+weer één pad: `_call_sp_dynamic(cursor, "dbo", procedure_name, sp_payload)`, voor online én
+buitendienst. `MonthView` wordt daarin als elke andere parameter dynamisch gematcht - `_normalize_name`
+maakt van zowel `@MonthView` als de payload-sleutel `MonthView` "monthview", en `_to_sql_value` zet de
+JSON-boolean `true` om naar `1` voor de BIT-parameter. Het matching-mechanisme zelf is niet aangeraakt
+(zie de projectregel daarover in CLAUDE.md); alleen de uitzondering erbovenop is weg. `timedelta` is uit
+de imports gehaald omdat het alleen voor die loop nodig was.
+
+Ontbreekt `MonthView` in de payload - zoals bij de boekingswidget, die per dag opvraagt - dan wordt de
+parameter niet meegestuurd en geldt de default `0` van de SP. Dat gedrag is dus onveranderd.
+
+**Gevolgen:** geverifieerd met een testscript dat `sys.parameters` van de nieuwe SP nabootst en een
+neppe cursor gebruikt: met de payload die AgendaPicker's `server.js` bij een maandwissel POST't, worden
+`@Date`, `@Postcode4` en `@MonthView` gematcht en gaan de argumenten `('2026-09-01', '1234', 1)` mee -
+`MonthView` komt dus als BIT-waarde 1 aan, niet als de string 'true'. Zonder `MonthView` in de payload
+blijven het `('2026-09-01', '1234')`. De rijvorm met `AfspraakDatum` per rij komt ongewijzigd door.
+`function_app.py` importeert nog schoon (`import function_app`). Dit is een verandering aan de
+Python-laag, dus **`function_app.py` moet gedeployed worden**; tot die tijd blijft de oude dag-voor-dag-
+loop draaien, die met de nieuwe SP nog steeds correct werkt (hij stuurt `MonthView` juist niet mee en
+vraagt per dag op) - er is dus geen strakke deploy-volgorde nodig.

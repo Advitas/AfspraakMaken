@@ -275,3 +275,8 @@
   zelf heeft omgezet naar online (AgendaPicker ADR-027). Nieuwe OUTPUT-parameter op
   `spWijzigAfspraakDatumTijd`, gevuld in de bestaande pre-UPDATE SELECT. **SQL opnieuw uitvoeren en
   `function_app.py` deployen** - alleen de SQL draaien breekt opslaan op de ontbrekende parameter.
+- [x] **Dag-voor-dag-loop voor buitendienst-availability verwijderd (2026-09-10):** de SP heeft nu zelf
+  een `@MonthView`-parameter, dus `_call_buitendienst_month_view`/`_is_month_view_requested` zijn eruit en
+  `_handle_availability` doet weer één `_call_sp_dynamic` voor beide vormen. Eén EXEC in plaats van
+  maximaal 31. **`function_app.py` moet gedeployed worden**; zonder deploy blijft de oude loop draaien,
+  die met de nieuwe SP nog steeds correct werkt.

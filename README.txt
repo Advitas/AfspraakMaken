@@ -117,12 +117,12 @@ GET/POST /availability
   bij vorm_afspraak=buitendienst).
 - Accepteert querystring en/of JSON body.
 - Matcht procedure-parameters dynamisch.
-- MonthView bij buitendienst (2026-09-07): [dbo].[psAgendaPicker_GetAvailabilityBuitendienst]
-  ondersteunt zelf geen MonthView (geeft altijd maar 1 dag terug, ongeacht die vlag). Bij
-  vorm_afspraak=buitendienst + MonthView=true roept _handle_availability de SP nu zelf per dag aan
-  voor de hele kalendermaand van de opgegeven 'date' (_call_buitendienst_month_view) en voegt de
-  resultaten samen tot één result set — AgendaPicker hoeft hier niets van te merken, blijft één
-  request per maandwissel doen zoals bij online.
+- MonthView bij buitendienst (2026-09-10): [dbo].[psAgendaPicker_GetAvailabilityBuitendienst]
+  heeft sinds 2026-09-10 zelf een @MonthView-parameter en geeft dan de hele kalendermaand terug,
+  met [AgendaDate] als AfspraakDatum per rij. _handle_availability doet daarom geen dag-voor-dag-
+  loop meer (_call_buitendienst_month_view is verwijderd): online en buitendienst lopen weer via
+  hetzelfde pad, namelijk een enkele _call_sp_dynamic-aanroep waarin MonthView net als elke andere
+  parameter dynamisch gematcht wordt.
 
 Volledige handleiding:
 Zie USER_MANUAL.md
