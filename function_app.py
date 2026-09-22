@@ -543,6 +543,70 @@ def _prepare_make_reservation_payload(payload: dict) -> dict:
     return prepared
 
 
+FUNNEL_REQUIRED_FIELDS = ("datum", "tijd", "adviseur_id", "duur_kwartieren", "route", "funnel", "run")
+
+# De parameters die dbo.spFunnelCreateOrCheck kent. _call_sp_dynamic matcht toch op naam via
+# sys.parameters, maar door hier expliciet te filteren blijft leesbaar wat er heen gaat en
+# belandt de rest van de funnel-payload niet per ongeluk in de procedure-aanroep.
+FUNNEL_SP_FIELDS = (
+    "funnel",
+    "route",
+    "klant_id",
+    "productnaam",
+    "verzekeraar_id",
+    "hoofdbranche_id",
+    "intermediair_id",
+)
+
+
+def _validate_funnel_payload(payload: dict):
+    for field in FUNNEL_REQUIRED_FIELDS:
+        value = payload.get(field)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            raise ValidationError(f"Parameter '{field}' is verplicht.")
+
+    campaign_value = payload.get("campagne_id", payload.get("campaign_id"))
+    if campaign_value is None or (isinstance(campaign_value, str) and not campaign_value.strip()):
+        raise ValidationError("Parameter 'campagne_id' (of 'campaign_id') is verplicht.")
+
+    try:
+        int(campaign_value)
+    except (TypeError, ValueError) as ex:
+        raise ValidationError("Parameter 'campagne_id' (of 'campaign_id') moet een getal zijn.") from ex
+
+    try:
+        duur_kwartieren = int(payload["duur_kwartieren"])
+    except (TypeError, ValueError) as ex:
+        raise ValidationError("Parameter 'duur_kwartieren' moet een getal zijn.") from ex
+
+    if duur_kwartieren <= 0:
+        raise ValidationError("Parameter 'duur_kwartieren' moet groter dan 0 zijn.")
+
+
+def _prepare_funnel_call(payload: dict) -> dict:
+    prepared = {key: payload[key] for key in FUNNEL_SP_FIELDS if key in payload}
+
+    # De procedure maakt een nieuwe klant aan (of zoekt er een op e-mailadres) zodra @klant_id
+    # NULL of 0 is. Een ontbrekend veld betekent hetzelfde, dus dat maken we hier expliciet.
+    if prepared.get("klant_id") in (None, "", 0, "0"):
+        prepared["klant_id"] = None
+
+    return prepared
+
+
+def _prepare_funnel_reservation_payload(payload: dict, klant_id: int) -> dict:
+    prepared = _prepare_make_reservation_payload(payload)
+
+    # Bewust zonder funnel en route: spMaakReservering roept bij campagne_id 230 zelf
+    # spMMJOcreateOrcheck aan, wat de klant een tweede keer zou registreren terwijl
+    # spFunnelCreateOrCheck dat hierboven al gedaan heeft.
+    for key in ("funnel", "mmjo_funnel", "MMJO/funnel", "route"):
+        prepared.pop(key, None)
+
+    prepared["klant_id"] = klant_id
+    return prepared
+
+
 def _build_value_lookup(payload: dict) -> dict:
     lookup = {}
     for key, value in payload.items():
