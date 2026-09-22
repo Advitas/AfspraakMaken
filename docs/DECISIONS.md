@@ -991,3 +991,51 @@ foutmelding, een foute postcode bij `beide` wordt afgewezen, hoofdletters (`BEID
 onbekende vorm geeft de bijgewerkte foutmelding. **Werkt pas na het uitvoeren van
 `sql/psAgendaPicker_GetAvailabilityGecombineerd.sql`** in de AgendaPicker-repo en na een deploy van
 `function_app.py`.
+
+## 2026-09-22 - POST /funnel: commit tussen de twee stored procedures
+
+**Context:** `POST /api/funnel-afspraak` in de AgendaPicker gaf een HTTP 500 met
+`AFSPRAAK_FUNNEL_URL is niet geconfigureerd.` De omgevingsvariabele was leeg omdat er nooit een
+endpoint gebouwd is om naar te wijzen: `function_app.py` kende `reservering`, `availability`,
+`afspraak` en de drie wijzig-routes, maar geen funnel-route, en `spFunnelCreateOrCheck` is nooit
+tegen een database uitgevoerd. Dat stond als openstaand punt in `AgendaPicker/docs/TODO.md`.
+
+**Beslissing:** een nieuw endpoint `POST /funnel` dat twee procedures achter elkaar aanroept —
+eerst `dbo.spFunnelCreateOrCheck` voor het `klant_id`, dan `dbo.spMaakReservering` met dat id.
+
+Het overwogen alternatief was de bestaande MMJO-hook in `spMaakReservering` (de tak op
+`@campagne_id = 230`, die zelf `spMMJOcreateOrcheck` aanroept) verbreden naar elke campagne met een
+funnel. Dat had geen nieuw endpoint gekost en zelfs geen Python-wijziging, omdat `/reservering`
+parameters dynamisch matcht via `sys.parameters`. Keuze van de gebruiker: níét doen, want het raakt
+de procedure waar alle live reserveringen doorheen lopen. De prijs is een tweede aanroeppad dat apart
+onderhouden moet worden.
+
+**Tussentijdse commit.** `_get_connection()` gebruikt `pyodbc.connect()` zonder `autocommit`, dus
+beide aanroepen lopen in een transactie die het endpoint zelf afsluit. `spFunnelCreateOrCheck` heeft
+een herstelmechanisme dat na een fout de `dbo.Funnel`-rij opnieuw wegschrijft, maar dat werkt alleen
+als de procedure de transactie zélf gestart heeft — en dat is hier niet zo. Daarom wordt er
+gecommit ná de funnel-procedure en vóór de reservering.
+
+**Gevolg, bewust geaccepteerd:** mislukt de reservering, dan blijven de funnel-rij, de klant en het
+product bestaan. De klant staat dan geregistreerd zonder afspraak. Dat is gekozen boven
+alles-of-niets omdat `dbo.Funnel` er juist is om de inzending te bewaren als het verderop misgaat, en
+omdat een lead zonder afspraak bruikbaar is terwijl een verdwenen inzending dat niet is. De
+foutmelding van het endpoint zegt daarom letterlijk dat de inzending wel is vastgelegd.
+
+**De reserveringsaanroep krijgt geen `funnel` en geen `route` mee.** `spMaakReservering` roept bij
+`@campagne_id = 230` zelf `spMMJOcreateOrcheck` aan; zou de funnel meegaan, dan werd de klant bij
+campagne 230 twee keer geregistreerd. Door beide velden weg te laten is het endpoint veilig voor
+campagne 230 zonder daar een aparte uitzondering voor te hoeven schrijven.
+
+**Productconfiguratie geparametriseerd.** `spFunnelCreateOrCheck` noemde zich generiek maar had de
+MMJO-productwaarden hardgecodeerd (productnaam `meermetjeoverwaarde.nl`, verzekeraar 33,
+hoofdbranche 51, intermediair 602), waardoor elke funnel een MMJO-product zou krijgen. Het zijn nu
+parameters met precies die waarden als default, dus een aanroeper die ze weglaat gedraagt zich
+onveranderd. Die wijziging zit in de AgendaPicker-repo, waar de procedure staat.
+
+**Gevolgen:** geverifieerd met 11 unittests op de payload-helpers (`tests/test_funnel_payload.py`,
+`unittest` uit de standaardbibliotheek — het project had nog geen testframework) en met een controle
+dat `funnel` nu in `app.get_functions()` staat. **Werkt pas na het uitvoeren van
+`sql/dboFunnel_tabel.sql` en `sql/spFunnelCreateOrCheck.sql`** in de AgendaPicker-repo, een deploy
+van `function_app.py`, en het zetten van `AFSPRAAK_FUNNEL_URL` in de App Settings van de
+AgendaPicker-app. Het endpoint zelf is nog niet tegen een database getest.
