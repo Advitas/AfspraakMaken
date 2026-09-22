@@ -1039,6 +1039,172 @@ def reservering(req: func.HttpRequest) -> func.HttpResponse:
             conn.close()
 
 
+@app.route(route="funnel", methods=["POST"])
+def funnel(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("Funnel API aangeroepen")
+
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return func.HttpResponse(
+            json.dumps({"error": "Body moet geldige JSON zijn."}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    if not isinstance(payload, dict):
+        return func.HttpResponse(
+            json.dumps({"error": "Body moet een JSON object zijn."}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    try:
+        _validate_funnel_payload(payload)
+        funnel_args = _prepare_funnel_call(payload)
+    except (ValidationError, ValueError) as ex:
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=400,
+            mimetype="application/json",
+        )
+
+    conn = None
+    cursor = None
+    try:
+        conn = _get_connection(payload.get("run"))
+        cursor = conn.cursor()
+
+        try:
+            funnel_result = _call_sp_dynamic(cursor, "dbo", "spFunnelCreateOrCheck", funnel_args)
+        except RuntimeError as ex:
+            if "heeft geen parameters of bestaat niet" not in str(ex):
+                raise
+            conn.rollback()
+            return func.HttpResponse(
+                json.dumps(
+                    {
+                        "error": "dbo.spFunnelCreateOrCheck bestaat niet in deze database. "
+                        "Voer sql/spFunnelCreateOrCheck.sql uit voordat dit endpoint gebruikt wordt."
+                    }
+                ),
+                status_code=500,
+                mimetype="application/json",
+            )
+
+        funnel_output = funnel_result.get("output", {})
+        klant_id = funnel_output.get("klant_id")
+
+        if klant_id in (None, 0):
+            conn.rollback()
+            return func.HttpResponse(
+                json.dumps(
+                    {
+                        "error": "spFunnelCreateOrCheck gaf geen klant_id terug.",
+                        "stored_procedure_output": funnel_output,
+                    },
+                    default=str,
+                ),
+                status_code=500,
+                mimetype="application/json",
+            )
+
+        # Bewust committen vóór de reservering. spFunnelCreateOrCheck draait binnen ONZE
+        # transactie (pyodbc verbindt zonder autocommit), en kan zijn eigen herstel-insert dus
+        # niet uitvoeren als het verderop misgaat. Door hier te committen blijft de inzending
+        # bewaard - inclusief klant en product - ook als de reservering hierna mislukt. Zie de
+        # ADR in docs/DECISIONS.md.
+        conn.commit()
+
+        reservering_args = _prepare_funnel_reservation_payload(payload, klant_id)
+        reservering_result = _call_sp_dynamic(cursor, "dbo", "spMaakReservering", reservering_args)
+        reservering_output = reservering_result.get("output", {})
+
+        sp_foutcode = reservering_output.get("foutcode")
+        try:
+            parsed_foutcode = int(sp_foutcode) if sp_foutcode is not None else 0
+        except (TypeError, ValueError):
+            parsed_foutcode = 0
+
+        if parsed_foutcode != 0:
+            conn.rollback()
+            return func.HttpResponse(
+                json.dumps(
+                    {
+                        "error": "Reservering is niet gelukt; de funnel-inzending is wel vastgelegd.",
+                        "klant_id": klant_id,
+                        "stored_procedure_output": reservering_output,
+                    },
+                    default=str,
+                ),
+                status_code=500,
+                mimetype="application/json",
+            )
+
+        conn.commit()
+
+        return func.HttpResponse(
+            json.dumps(
+                {
+                    "result": "success",
+                    "klant_id": klant_id,
+                    "funnel_output": funnel_output,
+                    "reservering_output": reservering_output,
+                    "matched_parameters": {
+                        "spFunnelCreateOrCheck": funnel_result.get("matched_parameters", []),
+                        "spMaakReservering": reservering_result.get("matched_parameters", []),
+                    },
+                },
+                default=str,
+            ),
+            status_code=200,
+            mimetype="application/json",
+        )
+    except RuntimeError as ex:
+        if conn:
+            conn.rollback()
+        return func.HttpResponse(
+            json.dumps({"error": str(ex)}),
+            status_code=500,
+            mimetype="application/json",
+        )
+    except pyodbc.Error as ex:
+        logging.exception("Databasefout in het funnel-endpoint")
+        if conn:
+            conn.rollback()
+        return func.HttpResponse(
+            json.dumps(
+                {
+                    "error": "Databasefout bij uitvoeren van stored procedure.",
+                    "details": _extract_db_error_details(ex),
+                },
+                default=str,
+            ),
+            status_code=500,
+            mimetype="application/json",
+        )
+    except Exception as ex:
+        logging.exception("Fout in het funnel-endpoint")
+        if conn:
+            conn.rollback()
+        return func.HttpResponse(
+            json.dumps(
+                {
+                    "error": "Interne fout bij uitvoeren van stored procedure.",
+                    "details": str(ex),
+                },
+                default=str,
+            ),
+            status_code=500,
+            mimetype="application/json",
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
 def _prepare_availability_call(payload: dict) -> tuple[str, dict]:
     # 2026-09-15 (verzoek gebruiker): 'agenda' is voortaan de ENIGE parameter die bepaalt welke
     # beschikbaarheid opgehaald wordt - vorm_afspraak en het aparte werkgebied-concept vervallen.
