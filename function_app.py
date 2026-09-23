@@ -806,7 +806,11 @@ def _call_sp_dynamic(cursor, schema_name: str, procedure_name: str, payload: dic
     parameters = _get_sp_parameters(cursor, schema_name, procedure_name)
     values = _build_value_lookup(payload)
 
-    sql_args = []
+    # Twee aparte lijsten, want de DECLARE-regels staan in de gegenereerde tekst vóór de EXEC.
+    # Werden alle argumenten in parametervolgorde in één lijst verzameld, dan schoof een
+    # OUTPUT-parameter mét waarde die ná een input-parameter staat de hele binding een plaats op.
+    declare_args = []
+    exec_args = []
     declare_lines = []
     exec_lines = []
     output_selects = []
@@ -826,7 +830,7 @@ def _call_sp_dynamic(cursor, schema_name: str, procedure_name: str, payload: dic
 
             if has_value:
                 declare_lines.append(f"DECLARE {variable_name} {declaration_type} = ?;")
-                sql_args.append(_to_sql_value(values[normalized_name]))
+                declare_args.append(_to_sql_value(values[normalized_name]))
             else:
                 declare_lines.append(f"DECLARE {variable_name} {declaration_type};")
 
@@ -837,7 +841,7 @@ def _call_sp_dynamic(cursor, schema_name: str, procedure_name: str, payload: dic
 
         if has_value:
             exec_lines.append(f"    @{parameter_name} = ?")
-            sql_args.append(_to_sql_value(values[normalized_name]))
+            exec_args.append(_to_sql_value(values[normalized_name]))
             matched_parameters.append(parameter_name)
 
     if not exec_lines:
@@ -853,7 +857,8 @@ def _call_sp_dynamic(cursor, schema_name: str, procedure_name: str, payload: dic
     if output_selects:
         sql_text_parts.append("SELECT " + ", ".join(output_selects) + ";")
 
-    cursor.execute("\n".join(sql_text_parts), *sql_args)
+    # Dezelfde volgorde als de vraagtekens in de tekst: eerst de DECLARE-regels, dan de EXEC.
+    cursor.execute("\n".join(sql_text_parts), *(declare_args + exec_args))
 
     result_sets = _read_all_result_sets(cursor)
     output = {}
