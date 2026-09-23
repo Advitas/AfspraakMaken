@@ -1039,3 +1039,39 @@ dat `funnel` nu in `app.get_functions()` staat. **Werkt pas na het uitvoeren van
 `sql/dboFunnel_tabel.sql` en `sql/spFunnelCreateOrCheck.sql`** in de AgendaPicker-repo, een deploy
 van `function_app.py`, en het zetten van `AFSPRAAK_FUNNEL_URL` in de App Settings van de
 AgendaPicker-app. Het endpoint zelf is nog niet tegen een database getest.
+
+## 2026-09-23 - _call_sp_dynamic bond argumenten in de verkeerde volgorde
+
+**Context:** de eerste echte aanroep van `POST /api/funnel` gaf een ODBC-fout 22018: *Conversion
+failed when converting the nvarchar value '...' to data type int*. De waarde in die melding was
+steeds de meegestuurde funnel-string, die dus in een `int`-parameter belandde.
+
+**Oorzaak:** `_call_sp_dynamic` verzamelde alle argumenten in één lijst, in de volgorde van
+`sys.parameters`, terwijl de gegenereerde SQL-tekst álle `DECLARE`-regels vóór de `EXEC` zet. Voor
+`spFunnelCreateOrCheck` (`@funnel`, `@route`, `@klant_id OUTPUT`) leverde dat op:
+
+```sql
+DECLARE @out_klant_id int = ?;        -- kreeg argument 1: de funnel-string
+EXEC [dbo].[spFunnelCreateOrCheck]
+    @funnel = ?,                      -- kreeg argument 2: het route-label
+    @route = ?,                       -- kreeg argument 3: het klant_id
+    @klant_id = @out_klant_id OUTPUT;
+```
+
+`spMaakReservering` ontliep dit al die tijd doordat `@klant_id` en `@campagne_id` daar parameter 1 en
+2 zijn: hun `DECLARE`-argumenten stonden toevallig al vooraan, precies zoals de tekst ze verwacht.
+`spFunnelCreateOrCheck` is de eerste procedure met een OUTPUT-parameter mét waarde ná een
+input-parameter, en daarmee de eerste die de bug blootlegde. De bug zat er dus al vanaf het begin in;
+hij was alleen niet te raken.
+
+**Beslissing:** de argumenten in twee lijsten verzamelen — `declare_args` en `exec_args` — en die bij
+`cursor.execute` in tekstvolgorde aan elkaar plakken.
+
+**Gevolgen:** `CLAUDE.md` merkt dit matchingmechanisme aan als iets dat je niet aanraakt zonder de
+gevolgen voor `/reservering` en `/availability` te overzien, dus de wijziging is pas doorgevoerd na
+expliciet akkoord en met een regressietest die alle drie de vormen vastlegt
+(`tests/test_call_sp_dynamic.py`): een OUTPUT ná een input (de funnel-procedure), OUTPUT-parameters
+vooraan (de reserveringsprocedure) en een procedure zonder OUTPUT-parameters (availability). Die
+laatste twee slaagden al vóór de fix en slagen erna nog steeds — dat is het bewijs dat beide
+bestaande endpoints dezelfde SQL blijven genereren. De tests draaien zonder database: `sys.parameters`
+wordt vervangen door een vaste lijst en de cursor legt alleen vast wat hij binnenkrijgt.
