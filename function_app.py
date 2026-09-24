@@ -545,6 +545,10 @@ def _prepare_make_reservation_payload(payload: dict) -> dict:
 
 FUNNEL_REQUIRED_FIELDS = ("datum", "tijd", "adviseur_id", "duur_kwartieren", "route", "funnel", "run")
 
+# Kop boven het funnel-blok in het informatie-veld van de reservering. Dezelfde tekst als
+# spMaakReservering voor de MMJO-funnel gebruikt, zodat beide er in het CRM hetzelfde uitzien.
+FUNNEL_INFORMATIE_KOP = "=== FUNNEL GEGEVENS ==="
+
 # De parameters die dbo.spFunnelCreateOrCheck kent. _call_sp_dynamic matcht toch op naam via
 # sys.parameters, maar door hier expliciet te filteren blijft leesbaar wat er heen gaat en
 # belandt de rest van de funnel-payload niet per ongeluk in de procedure-aanroep.
@@ -594,6 +598,73 @@ def _prepare_funnel_call(payload: dict) -> dict:
     return prepared
 
 
+def _funnel_regel(sleutel, waarde) -> str:
+    """Eén 'Label: waarde'-regel, of een lege string als er niets te tonen valt."""
+    if waarde is None:
+        return ""
+
+    if isinstance(waarde, bool):
+        tekst = "ja" if waarde else "nee"
+    elif isinstance(waarde, (list, tuple)):
+        tekst = ", ".join(str(item).strip() for item in waarde if item is not None and str(item).strip())
+    elif isinstance(waarde, dict):
+        tekst = json.dumps(waarde, ensure_ascii=False)
+    else:
+        tekst = str(waarde).strip()
+
+    if not tekst:
+        return ""
+
+    label = str(sleutel).strip().replace("_", " ")
+    return f"{label[:1].upper()}{label[1:]}: {tekst}"
+
+
+def _funnel_naar_informatie(funnel_waarde) -> str:
+    """Zet de funnel om naar leesbare regels voor het informatie-veld van de reservering.
+
+    Dezelfde geest als de @funnel_readable-opbouw in spMaakReservering, maar zonder vaste
+    veldnamen: die versie is MMJO-specifiek en zet 'Niet opgegeven' bij sleutels die een
+    generieke funnel helemaal niet kent.
+    """
+    if funnel_waarde is None:
+        return ""
+
+    data = funnel_waarde
+
+    if not isinstance(data, (dict, list)):
+        ruw = str(data).strip()
+        if not ruw:
+            return ""
+        try:
+            data = json.loads(ruw)
+        except ValueError:
+            # Geen geldige JSON. De tekst toch meenemen: weglaten zou betekenen dat de
+            # inzending nergens op de reservering terug te zien is.
+            return FUNNEL_INFORMATIE_KOP + "\r\n" + ruw
+
+    if not isinstance(data, dict):
+        return FUNNEL_INFORMATIE_KOP + "\r\n" + json.dumps(data, ensure_ascii=False)
+
+    regels = []
+    for sleutel, waarde in data.items():
+        if isinstance(waarde, dict):
+            # Eén laag platslaan, net zoals spFunnelCreateOrCheck met OPENJSON doet.
+            for subsleutel, subwaarde in waarde.items():
+                regel = _funnel_regel(subsleutel, subwaarde)
+                if regel:
+                    regels.append(regel)
+            continue
+
+        regel = _funnel_regel(sleutel, waarde)
+        if regel:
+            regels.append(regel)
+
+    if not regels:
+        return ""
+
+    return FUNNEL_INFORMATIE_KOP + "\r\n" + "\r\n".join(regels)
+
+
 def _prepare_funnel_reservation_payload(payload: dict, klant_id: int) -> dict:
     prepared = _prepare_make_reservation_payload(payload)
 
@@ -602,6 +673,15 @@ def _prepare_funnel_reservation_payload(payload: dict, klant_id: int) -> dict:
     # spFunnelCreateOrCheck dat hierboven al gedaan heeft.
     for key in ("funnel", "mmjo_funnel", "MMJO/funnel", "route"):
         prepared.pop(key, None)
+
+    # De funnel gaat wél altijd mee naar de reservering, als leesbare tekst in het
+    # informatie-veld. spMaakReservering vult @funnel_readable alleen bij campagne_id 230, dus
+    # voor elke andere campagne moeten wij die tekst aanleveren. Bestaande informatie blijft
+    # staan en komt bovenaan, in dezelfde volgorde als de procedure zelf aanhoudt.
+    funnel_tekst = _funnel_naar_informatie(payload.get("funnel"))
+    if funnel_tekst:
+        bestaande = str(prepared.get("informatie") or "").strip()
+        prepared["informatie"] = f"{bestaande}\r\n\r\n{funnel_tekst}" if bestaande else funnel_tekst
 
     prepared["klant_id"] = klant_id
     return prepared

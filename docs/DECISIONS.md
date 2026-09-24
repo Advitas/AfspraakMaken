@@ -1075,3 +1075,36 @@ vooraan (de reserveringsprocedure) en een procedure zonder OUTPUT-parameters (av
 laatste twee slaagden al vóór de fix en slagen erna nog steeds — dat is het bewijs dat beide
 bestaande endpoints dezelfde SQL blijven genereren. De tests draaien zonder database: `sys.parameters`
 wordt vervangen door een vaste lijst en de cursor legt alleen vast wat hij binnenkrijgt.
+
+## 2026-09-24 - De funnel gaat altijd mee naar de reservering, als leesbare tekst in informatie
+
+**Context:** in de beslissing van 2026-09-22 kreeg de reserveringsaanroep van `POST /funnel`
+bewust geen `funnel` mee, om te voorkomen dat campagne 230 de klant twee keer zou registreren via
+de MMJO-hook in `spMaakReservering`. Gevolg was wel dat de funnel-inhoud alleen in `dbo.Funnel`
+belandde en nergens op de reservering zelf terug te zien was. Verzoek van de gebruiker: *"De funnel
+informatie moet altijd naar de reservering worden geschreven onder info."*
+
+**Beslissing:** het endpoint zet de funnel om naar leesbare regels en geeft die mee als
+`@informatie` aan `spMaakReservering`. De parameter `@funnel` blijft weg, dus de reden voor de
+oorspronkelijke keuze blijft overeind: de MMJO-hook wordt nog steeds niet geraakt en er ontstaat geen
+dubbele klantregistratie.
+
+**Waarom in Python en niet in SQL.** `spMaakReservering` bouwt zelf al een leesbare funnel
+(`@funnel_readable`) en plakt die aan `@informatie` vast, maar alleen in de tak voor
+`@campagne_id = 230`, en met vaste MMJO-veldnamen (`$.contact.naam`, `$.berekening.woningwaarde`).
+Die tak generiek maken zou een wijziging in de procedure betekenen waar alle live reserveringen
+doorheen lopen - precies wat op 2026-09-22 is afgewezen.
+
+**Vorm.** Een kop `=== FUNNEL GEGEVENS ===`, dezelfde tekst die `spMaakReservering` voor MMJO
+gebruikt zodat beide er in het CRM hetzelfde uitzien, gevolgd door `Label: waarde`-regels.
+Onderstrepingen in sleutels worden spaties, booleans worden `ja`/`nee`, lege waarden vallen weg, en
+geneste objecten worden een laag platgeslagen - dezelfde diepte als `spFunnelCreateOrCheck` met
+`OPENJSON` aanhoudt. Is de funnel geen geldige JSON, dan gaat de ruwe tekst alsnog mee: een
+inzending die nergens terug te zien is, is erger dan een lelijke.
+
+Bestaande `informatie` van de aanroeper blijft staan en komt bovenaan, met de funnel eronder - in
+dezelfde volgorde als de procedure zelf aanhoudt.
+
+**Gevolgen:** geverifieerd met 25 unittests (`tests/test_funnel_payload.py`), waaronder de
+platgeslagen nesting, het wegvallen van lege waarden, het behoud van bestaande informatie en de
+terugval bij ongeldige JSON. Niet tegen een database getest.
