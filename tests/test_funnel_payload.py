@@ -3,6 +3,7 @@
 Draait zonder database: de helpers zijn pure functies. Uitvoeren met
 .venv\\Scripts\\python.exe -m unittest discover -s tests -v
 """
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -91,6 +92,71 @@ class ReserveringPayloadTest(unittest.TestCase):
         prepared = function_app._prepare_funnel_reservation_payload(payload, 4242)
         self.assertNotIn("MMJO/funnel", prepared)
         self.assertNotIn("mmjo_funnel", prepared)
+
+
+class FunnelInInformatieTest(unittest.TestCase):
+    """De funnel moet altijd leesbaar in het informatie-veld van de reservering belanden.
+
+    spMaakReservering vult @funnel_readable alleen bij campagne_id 230, dus voor elke andere
+    campagne levert het endpoint die tekst zelf aan.
+    """
+
+    def test_leesbare_regels_per_veld(self):
+        payload = geldige_payload()
+        payload["funnel"] = json.dumps({"naam": "Testpersoon Advitas", "email": "test@example.com"})
+        informatie = function_app._prepare_funnel_reservation_payload(payload, 1)["informatie"]
+        self.assertIn("=== FUNNEL GEGEVENS ===", informatie)
+        self.assertIn("Naam: Testpersoon Advitas", informatie)
+        self.assertIn("Email: test@example.com", informatie)
+
+    def test_onderstrepingen_worden_spaties(self):
+        payload = geldige_payload()
+        payload["funnel"] = json.dumps({"gewenste_opname": 25000})
+        informatie = function_app._prepare_funnel_reservation_payload(payload, 1)["informatie"]
+        self.assertIn("Gewenste opname: 25000", informatie)
+
+    def test_genest_object_wordt_platgeslagen(self):
+        payload = geldige_payload()
+        payload["funnel"] = json.dumps({"contact": {"naam": "Jan", "telefoon": "0612345678"}})
+        informatie = function_app._prepare_funnel_reservation_payload(payload, 1)["informatie"]
+        self.assertIn("Naam: Jan", informatie)
+        self.assertIn("Telefoon: 0612345678", informatie)
+        self.assertNotIn("Contact:", informatie)
+
+    def test_lege_waarden_vallen_weg(self):
+        payload = geldige_payload()
+        payload["funnel"] = json.dumps({"naam": "Jan", "toevoeging": "", "opmerking": None})
+        informatie = function_app._prepare_funnel_reservation_payload(payload, 1)["informatie"]
+        self.assertIn("Naam: Jan", informatie)
+        self.assertNotIn("Toevoeging", informatie)
+        self.assertNotIn("Opmerking", informatie)
+
+    def test_bestaande_informatie_blijft_staan_en_komt_eerst(self):
+        payload = geldige_payload()
+        payload["informatie"] = "Klant belde zelf."
+        payload["funnel"] = json.dumps({"naam": "Jan"})
+        informatie = function_app._prepare_funnel_reservation_payload(payload, 1)["informatie"]
+        self.assertTrue(informatie.startswith("Klant belde zelf."))
+        self.assertIn("Naam: Jan", informatie)
+
+    def test_ongeldige_json_gaat_alsnog_mee(self):
+        payload = geldige_payload()
+        payload["funnel"] = "adsadfsafasfsf"
+        informatie = function_app._prepare_funnel_reservation_payload(payload, 1)["informatie"]
+        self.assertIn("adsadfsafasfsf", informatie)
+
+    def test_funnel_als_object_werkt_ook(self):
+        payload = geldige_payload()
+        payload["funnel"] = {"naam": "Jan"}
+        informatie = function_app._prepare_funnel_reservation_payload(payload, 1)["informatie"]
+        self.assertIn("Naam: Jan", informatie)
+
+    def test_booleans_worden_ja_of_nee(self):
+        payload = geldige_payload()
+        payload["funnel"] = json.dumps({"akkoord": True, "nieuwsbrief": False})
+        informatie = function_app._prepare_funnel_reservation_payload(payload, 1)["informatie"]
+        self.assertIn("Akkoord: ja", informatie)
+        self.assertIn("Nieuwsbrief: nee", informatie)
 
 
 if __name__ == "__main__":
